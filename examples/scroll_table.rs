@@ -17,8 +17,8 @@ use std::io;
 use std::rc::Rc;
 
 use rdom_tui::{
-    App, Direction, Display, Flow, ListenerOptions, NodeId, Padding, Size, Stylesheet, TuiDom,
-    TuiNodeMutExt, TuiStyle, Value,
+    App, Color, Direction, Display, Flow, ListenerOptions, NodeId, Padding, Size, Stylesheet,
+    TuiDom, TuiNodeMutExt, TuiStyle, Value,
 };
 use rdom_virtualtable::{Column, VirtualTable, VirtualTableView};
 
@@ -122,5 +122,14 @@ fn main() -> io::Result<()> {
     })
     .unwrap();
 
-    App::new(dom, Stylesheet::new())?.run()
+    // The table is focusable (for the scroll keys), and the UA gives any
+    // focused element a subtle background tint. For a whole table that
+    // reads as an ugly gray fill, so opt out — the generic `:focus` tint
+    // is non-important (rdom 0.3.1), so a higher-specificity author rule
+    // wins. (A bordered table could instead recolor its border on
+    // `:focus` for an outline-style cue.)
+    let sheet = Stylesheet::new()
+        .rule("table:focus", TuiStyle::new().bg(Color::Reset))
+        .unwrap();
+    App::new(dom, sheet)?.run()
 }

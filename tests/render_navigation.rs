@@ -4,8 +4,8 @@
 //! stylesheet only paints the cursor while the table is focused.
 
 use rdom_tui::render::{Buffer, LayoutExt, PaintExt, Rect};
-use rdom_tui::style::CascadeExt;
-use rdom_tui::{Color, NodeId, TuiDom};
+use rdom_tui::style::{CascadeExt, Stylesheet};
+use rdom_tui::{Color, NodeId, TuiDom, TuiStyle};
 use rdom_virtualtable::{Column, Nav, VirtualTable, VirtualTableView, highlight_stylesheet};
 
 fn grid(rows: usize, cols: usize) -> VirtualTableView {
@@ -57,6 +57,41 @@ fn header_cells(dom: &TuiDom, table: NodeId) -> Vec<NodeId> {
         }
     }
     Vec::new()
+}
+
+/// Cascade + layout + paint with `sheet`, then count cells painted with `bg`.
+fn count_bg(dom: &mut TuiDom, sheet: &Stylesheet, viewport: Rect, bg: Color) -> usize {
+    dom.cascade(sheet);
+    dom.layout_dom(viewport);
+    let mut buf = Buffer::empty(viewport);
+    dom.paint_dom(&mut buf, viewport);
+    let mut n = 0;
+    for y in viewport.y..viewport.bottom() {
+        for x in viewport.x..viewport.right() {
+            if let Some(c) = buf.cell(x, y) {
+                if c.bg == bg {
+                    n += 1;
+                }
+            }
+        }
+    }
+    n
+}
+
+/// Mount a focused, navigated grid ready for paint assertions: cursor at row 1,
+/// table focused, an 8-row window shown.
+fn focused_navigated_grid() -> (TuiDom, NodeId) {
+    let view = grid(20, 3);
+    let mut dom = TuiDom::new();
+    let root = dom.root();
+    let table = view.mount(&mut dom);
+    dom.append_child(root, table).unwrap();
+    dom.node_mut(table).set_attribute("tabindex", "0").ok();
+    view.set_viewport_rows(8);
+    view.show_window(&mut dom, 0, 8);
+    view.navigate(&mut dom, Nav::Down); // cursor at row 1
+    dom.set_focused(Some(table));
+    (dom, table)
 }
 
 #[test]
@@ -140,6 +175,7 @@ fn navigation_past_window_shifts_and_rehighlights() {
 
 #[test]
 fn highlight_is_focus_gated_at_paint() {
+    // Same setup as `focused_navigated_grid` but we toggle focus by hand.
     let view = grid(20, 3);
     let mut dom = TuiDom::new();
     let root = dom.root();
@@ -152,29 +188,11 @@ fn highlight_is_focus_gated_at_paint() {
 
     let sheet = highlight_stylesheet();
     let viewport = Rect::new(0, 0, 40, 12);
-
     let cursor_bg = Color::Rgb(0x1f, 0x21, 0x23); // #1f2123 — the cursor cell
-    let count_cursor_cells = |dom: &mut TuiDom| -> usize {
-        dom.cascade(&sheet);
-        dom.layout_dom(viewport);
-        let mut buf = Buffer::empty(viewport);
-        dom.paint_dom(&mut buf, viewport);
-        let mut n = 0;
-        for y in viewport.y..viewport.bottom() {
-            for x in viewport.x..viewport.right() {
-                if let Some(c) = buf.cell(x, y) {
-                    if c.bg == cursor_bg {
-                        n += 1;
-                    }
-                }
-            }
-        }
-        n
-    };
 
     // Unfocused: the focus-gated rule must not paint the cursor.
     assert_eq!(
-        count_cursor_cells(&mut dom),
+        count_bg(&mut dom, &sheet, viewport, cursor_bg),
         0,
         "no cursor bg when unfocused"
     );
@@ -182,7 +200,49 @@ fn highlight_is_focus_gated_at_paint() {
     // Focused: the active cell paints with the cursor background.
     dom.set_focused(Some(table));
     assert!(
-        count_cursor_cells(&mut dom) > 0,
+        count_bg(&mut dom, &sheet, viewport, cursor_bg) > 0,
         "cursor bg appears once the table is focused"
+    );
+}
+
+#[test]
+fn highlight_colors_are_opt_in_defaults() {
+    // The `data-active-*` attributes are the contract; the colors are not.
+    // With no highlight CSS at all, the default cursor color is never painted —
+    // styling is purely the consumer's CSS.
+    let (mut dom, _table) = focused_navigated_grid();
+    let viewport = Rect::new(0, 0, 40, 12);
+    let default_cell = Color::Rgb(0x1f, 0x21, 0x23);
+
+    assert_eq!(
+        count_bg(&mut dom, &Stylesheet::new(), viewport, default_cell),
+        0,
+        "without highlight CSS, the default cursor color is never painted"
+    );
+}
+
+#[test]
+fn consumer_css_overrides_default_colors() {
+    // A consumer can recolor the cursor by adding a same-specificity rule that
+    // comes later in source order (or by writing their own sheet entirely).
+    let (mut dom, _table) = focused_navigated_grid();
+    let viewport = Rect::new(0, 0, 40, 12);
+
+    let custom = Color::Rgb(0x80, 0x00, 0x00); // a color our defaults never use
+    let sheet = highlight_stylesheet()
+        .rule(
+            "table:focus td[data-active-cell]",
+            TuiStyle::new().bg(custom),
+        )
+        .unwrap();
+
+    assert!(
+        count_bg(&mut dom, &sheet, viewport, custom) > 0,
+        "consumer rule paints its own cursor color"
+    );
+    assert_eq!(
+        count_bg(&mut dom, &sheet, viewport, Color::Rgb(0x1f, 0x21, 0x23)),
+        0,
+        "the default cursor color is fully overridden"
     );
 }

@@ -153,7 +153,7 @@ fn highlight_is_focus_gated_at_paint() {
     let sheet = highlight_stylesheet();
     let viewport = Rect::new(0, 0, 40, 12);
 
-    let cursor_bg = Color::Indexed(33);
+    let cursor_bg = Color::Rgb(0x1f, 0x21, 0x23); // #1f2123 — the cursor cell
     let count_cursor_cells = |dom: &mut TuiDom| -> usize {
         dom.cascade(&sheet);
         dom.layout_dom(viewport);

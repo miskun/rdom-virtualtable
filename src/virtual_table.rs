@@ -353,28 +353,20 @@ fn set_flag(dom: &mut TuiDom, id: NodeId, attr: &str, on: bool) {
 /// - `data-active-col` on every `<th>`/`<td>` in the cursor's column,
 /// - `data-active-cell` on the single `<td>` at the cursor.
 ///
-/// The cell rule is listed last so it wins over the column rule on the
-/// crossing cell (equal specificity → source order decides).
+/// The active row and column share one tint (`#181a1c`); the cursor cell is a
+/// touch brighter (`#1f2123`). The cell rule is listed last so it wins over
+/// the column rule on the crossing cell (equal specificity → source order
+/// decides).
 pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
+    // #181a1c — shared row/column tint.
+    let line = Color::Rgb(0x18, 0x1a, 0x1c);
+    // #1f2123 — the cursor cell, one step brighter.
+    let cell = Color::Rgb(0x1f, 0x21, 0x23);
     vec![
-        (
-            "table:focus tr[data-active-row]",
-            TuiStyle::new().bg(Color::Indexed(236)),
-        ),
-        (
-            "table:focus th[data-active-col]",
-            TuiStyle::new().bg(Color::Indexed(238)),
-        ),
-        (
-            "table:focus td[data-active-col]",
-            TuiStyle::new().bg(Color::Indexed(238)),
-        ),
-        (
-            "table:focus td[data-active-cell]",
-            TuiStyle::new()
-                .bg(Color::Indexed(33))
-                .fg(Color::Indexed(231)),
-        ),
+        ("table:focus tr[data-active-row]", TuiStyle::new().bg(line)),
+        ("table:focus th[data-active-col]", TuiStyle::new().bg(line)),
+        ("table:focus td[data-active-col]", TuiStyle::new().bg(line)),
+        ("table:focus td[data-active-cell]", TuiStyle::new().bg(cell)),
     ]
 }
 

@@ -223,26 +223,27 @@ fn highlight_colors_are_opt_in_defaults() {
 
 #[test]
 fn consumer_css_overrides_default_colors() {
-    // A consumer can recolor the cursor by adding a same-specificity rule that
-    // comes later in source order (or by writing their own sheet entirely).
+    // The defaults are wrapped in `:where()` → zero specificity, so even a
+    // PLAIN low-specificity author rule overrides them — no `table:focus`
+    // prefix, no specificity matching. `td[data-active-cell]` is (0,1,1),
+    // which would have LOST to the un-wrapped `table:focus td[...]` (0,2,2)
+    // default but beats the `:where()`-wrapped one. This is the browser-easy
+    // override the `:where()` wiring buys us.
     let (mut dom, _table) = focused_navigated_grid();
     let viewport = Rect::new(0, 0, 40, 12);
 
     let custom = Color::Rgb(0x80, 0x00, 0x00); // a color our defaults never use
     let sheet = highlight_stylesheet()
-        .rule(
-            "table:focus td[data-active-cell]",
-            TuiStyle::new().bg(custom),
-        )
+        .rule("td[data-active-cell]", TuiStyle::new().bg(custom))
         .unwrap();
 
     assert!(
         count_bg(&mut dom, &sheet, viewport, custom) > 0,
-        "consumer rule paints its own cursor color"
+        "a plain low-specificity author rule paints its own cursor color"
     );
     assert_eq!(
         count_bg(&mut dom, &sheet, viewport, Color::Rgb(0x1f, 0x21, 0x23)),
         0,
-        "the default cursor color is fully overridden"
+        "the zero-specificity default cursor color is fully overridden"
     );
 }

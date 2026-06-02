@@ -41,9 +41,12 @@
 //! - `data-active-cell` on the single `<td>` at the cursor.
 //!
 //! [`highlight_stylesheet`] gives a ready-made, **focus-gated** cross-hair
-//! (`table:focus tr[data-active-row] { … }`, etc. — so the highlight only
-//! shows while the table is focused); [`highlight_rules`] exposes the same
-//! `(selector, style)` pairs to fold into your own sheet with custom colors.
+//! (the highlight only shows while the table is focused); [`highlight_rules`]
+//! exposes the same `(selector, style)` pairs to fold into your own sheet.
+//! The default rules are wrapped in `:where()` so they carry **zero
+//! specificity** — any author rule of any specificity overrides them, exactly
+//! like overriding a browser UA style (no `table:focus` prefix or specificity
+//! matching needed). Requires rdom-tui ≥ 0.3.3.
 
 mod grid_cursor;
 mod virtual_table;

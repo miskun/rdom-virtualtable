@@ -13,7 +13,7 @@ materializes **only the visible row window**. A dataset of any size renders a bo
 ```toml
 [dependencies]
 rdom-virtualtable = "0.1"
-rdom-tui = "0.3"
+rdom-tui = "0.3.3"
 ```
 
 ## Try it
@@ -58,6 +58,16 @@ The cursor is reflected as **presence attributes** — `data-active-row` on the 
 `data-active-col` on its column's cells, `data-active-cell` on the cursor cell — so **CSS owns the
 look**. `highlight_stylesheet()` is a ready-made, focus-gated cross-hair (it only paints while the
 table is focused); `highlight_rules()` exposes the same `(selector, style)` pairs to recolor.
+
+The default rules are wrapped in `:where()`, so they carry **zero specificity** — any author rule
+overrides them with no specificity fight, exactly like overriding a browser UA default:
+
+```rust,ignore
+// Recolor the cursor cell — a plain selector wins over the zero-specificity default.
+let sheet = highlight_stylesheet()
+    .rule("td[data-active-cell]", TuiStyle::new().bg(Color::Rgb(0x33, 0x55, 0x88)))
+    .unwrap();
+```
 
 ## Status
 

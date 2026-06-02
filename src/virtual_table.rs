@@ -357,16 +357,34 @@ fn set_flag(dom: &mut TuiDom, id: NodeId, attr: &str, on: bool) {
 /// touch brighter (`#1f2123`). The cell rule is listed last so it wins over
 /// the column rule on the crossing cell (equal specificity → source order
 /// decides).
+///
+/// Each selector is wrapped in **`:where()`** so the whole rule carries **zero
+/// specificity** (it still only matches a focused table's active cells —
+/// `:where()` changes specificity, not matching). That makes these true
+/// *defaults*: any author rule of any specificity overrides them, exactly like
+/// overriding a browser UA style. Requires rdom-tui ≥ 0.3.3.
 pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
     // #181a1c — shared row/column tint.
     let line = Color::Rgb(0x18, 0x1a, 0x1c);
     // #1f2123 — the cursor cell, one step brighter.
     let cell = Color::Rgb(0x1f, 0x21, 0x23);
     vec![
-        ("table:focus tr[data-active-row]", TuiStyle::new().bg(line)),
-        ("table:focus th[data-active-col]", TuiStyle::new().bg(line)),
-        ("table:focus td[data-active-col]", TuiStyle::new().bg(line)),
-        ("table:focus td[data-active-cell]", TuiStyle::new().bg(cell)),
+        (
+            ":where(table:focus tr[data-active-row])",
+            TuiStyle::new().bg(line),
+        ),
+        (
+            ":where(table:focus th[data-active-col])",
+            TuiStyle::new().bg(line),
+        ),
+        (
+            ":where(table:focus td[data-active-col])",
+            TuiStyle::new().bg(line),
+        ),
+        (
+            ":where(table:focus td[data-active-cell])",
+            TuiStyle::new().bg(cell),
+        ),
     ]
 }
 

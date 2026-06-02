@@ -45,9 +45,19 @@ documented rdom enhancement when we hit it (the same loop that drove rdom 0.3.0�
 - **Highlight contract (durable — also in CLAUDE.md):** the cursor is reflected as *presence
   attributes*, never hard-coded colors — `data-active-row` (`<tr>`), `data-active-col`
   (`<th>`/`<td>` in the column), `data-active-cell` (the cursor `<td>`). `highlight_stylesheet()` /
-  `highlight_rules()` provide a default **focus-gated** cross-hair (`table:focus tr[data-active-row]
-  { … }`) so the highlight only shows while the table is focused, and the cell rule is listed last
-  so it wins over the column rule on the crossing cell (equal specificity → source order).
+  `highlight_rules()` provide a default **focus-gated** cross-hair so the highlight only shows while
+  the table is focused, and the cell rule is listed last so it wins over the column rule on the
+  crossing cell (source order).
+- **Defaults are `:where()`-wrapped → zero specificity (requires rdom-tui ≥ 0.3.3).** The override
+  question — "why is overriding our defaults harder than overriding browser UA styles?" — has a real
+  answer: browsers sort the cascade by *origin* (Author beats UA for free), but a downstream crate
+  can only emit Author-origin rules, so defaults + app rules fought on specificity. Rather than
+  invent a non-web origin tier, we drove the **web-faithful fix into the substrate**: rdom 0.3.3
+  added `:where()` (Selectors L4 — matches like `:is()`, contributes zero specificity). The default
+  rules now wrap their `table:focus …` selectors in `:where(…)`, so *any* author rule (even a plain
+  `td[data-active-cell] {}`) overrides them with no specificity fight — exactly like a browser UA
+  default. Tested end-to-end (`consumer_css_overrides_default_colors`). This is the
+  "promote-friction-to-substrate" loop in action (cf. rdom 0.3.0–0.3.2).
 - Tests: +7 unit (cursor moves/clamp/follow + keymap) and +3 integration (attributes mark the right
   row/col/cell incl. header; nav past the window shifts + re-highlights while staying bounded;
   highlight is focus-gated at paint). **Total: 22 (15 unit + 6 integration + 1 doctest).**

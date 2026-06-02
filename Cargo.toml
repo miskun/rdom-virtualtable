@@ -13,4 +13,4 @@ readme = "README.md"
 [dependencies]
 # Public rdom-tui surface only (native <table>, element/text builders,
 # column sync). No path dep, no private hooks.
-rdom-tui = "0.3"
+rdom-tui = "0.3.3"  # 0.3.3+ for `:where()` zero-specificity highlight defaults

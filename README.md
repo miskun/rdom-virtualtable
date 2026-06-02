@@ -19,7 +19,7 @@ rdom-tui = "0.3"
 ## Try it
 
 ```bash
-cargo run --example scroll_table   # scroll a 500-row table (j/k or ↑/↓), Ctrl-C to quit
+cargo run --example scroll_table   # navigate a 500-row table (arrows/hjkl, g/G), Ctrl-C to quit
 ```
 
 ## Example
@@ -40,14 +40,37 @@ let (start, count) = VirtualTable::window_for(20, /* scroll_y */ 0, view.with(|t
 view.show_window(&mut dom, start, count);  // only these rows are materialized
 ```
 
+## Keyboard navigation
+
+A logical cursor moves an active `(row, col)` over the whole dataset; the view scrolls to keep it
+visible and re-materializes the window as needed. Wire the built-in keymap in one call:
+
+```rust
+# use rdom_virtualtable::{VirtualTableView, highlight_stylesheet};
+# use rdom_tui::{TuiDom, NodeId};
+# fn demo(view: &VirtualTableView, dom: &mut TuiDom, table: NodeId) {
+dom.node_mut(table).set_attribute("tabindex", "0").ok(); // focusable
+view.install_nav(dom, table, /* visible rows */ 14);     // arrows/hjkl, g/G, PageUp/Down
+# }
+```
+
+The cursor is reflected as **presence attributes** — `data-active-row` on the cursor's `<tr>`,
+`data-active-col` on its column's cells, `data-active-cell` on the cursor cell — so **CSS owns the
+look**. `highlight_stylesheet()` is a ready-made, focus-gated cross-hair (it only paints while the
+table is focused); `highlight_rules()` exposes the same `(selector, style)` pairs to recolor.
+
 ## Status
 
-Shipped: the **virtualization core** — column/row model, pure `window_for` math, and
-`show_window` materialization (drops the previous window via `drop_subtree`, re-syncs column
-widths).
+Shipped:
 
-Planned: sorting, row/cell selection, column resize/reorder/hide, a scrollbar spacer + automatic
-scroll→window recompute, side-loaded data sources, persistence. See `STATE.md`.
+- **Virtualization core** — column/row model, pure `window_for` math, and `show_window`
+  materialization (drops the previous window via `drop_subtree`, re-syncs column widths).
+- **Keyboard navigation + cursor highlight** — a pure `GridCursor`, the `install_nav` keymap
+  (arrows/`hjkl`, `g`/`G`/`Home`/`End`, `PageUp`/`PageDown`) with scroll-follow, and the
+  `data-active-*` CSS highlight contract + a default focus-gated stylesheet.
+
+Planned: row/cell **selection** (shift-range, toggle, select-all); sorting; column resize / reorder
+/ hide; a scrollbar spacer; side-loaded data sources; persistence. See `STATE.md`.
 
 ## License
 

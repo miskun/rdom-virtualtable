@@ -22,6 +22,17 @@ substrate (charts live in the separate `rdom-charts` crate; this crate is table-
   must `drop_subtree` the previous window (detach alone leaks arena slots) and re-sync column
   widths. Pure windowing math (`window_for`) stays separate and unit-tested.
 - **Theme-agnostic.** Speak `rdom_tui` types directly; no app-specific theme abstraction.
+- **CSS owns the look; the view owns state.** Interaction state (cursor, and later selection) is
+  reflected onto the DOM as *presence attributes*, never baked colors: `data-active-row` /
+  `data-active-col` / `data-active-cell` for the cursor (selection will add `data-selected`).
+  Consumers style them with CSS — the crate ships an optional **focus-gated** default
+  (`highlight_stylesheet` / `highlight_rules`, keyed `table:focus tr[data-active-row] { … }`) that
+  is fully overridable. This mirrors rdom's own `<tree>` cursor pattern. Never hard-code highlight
+  colors in paint; never gate state behind anything but attributes the cascade can see.
+- **Substrate-first when blocked, consumer-first by default.** Nav + highlight is built on public
+  rdom-tui APIs. Features that genuinely need custom layout/paint (scrollbar reflecting total rows,
+  horizontal scroll, column resize) are NOT faked here — they become focused, documented rdom
+  enhancement requests (the loop that produced rdom 0.3.0–0.3.2), tracked in `STATE.md`.
 
 ## Engineering rules
 

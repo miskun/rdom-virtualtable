@@ -1,0 +1,16 @@
+[package]
+name = "rdom-virtualtable"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+description = "Virtualized table for rdom — a native <table> that materializes only the visible row window for large datasets."
+repository = "https://github.com/miskun/rdom-virtualtable"
+keywords = ["tui", "table", "virtual", "terminal", "rdom"]
+categories = ["command-line-interface"]
+readme = "README.md"
+
+[dependencies]
+# Public rdom-tui surface only (native <table>, element/text builders,
+# column sync). No path dep, no private hooks.
+rdom-tui = "0.3"

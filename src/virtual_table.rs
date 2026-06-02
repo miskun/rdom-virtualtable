@@ -353,10 +353,16 @@ fn set_flag(dom: &mut TuiDom, id: NodeId, attr: &str, on: bool) {
 /// - `data-active-col` on every `<th>`/`<td>` in the cursor's column,
 /// - `data-active-cell` on the single `<td>` at the cursor.
 ///
-/// The active row and column share one tint (`#181a1c`); the cursor cell is a
-/// touch brighter (`#1f2123`). The cell rule is listed last so it wins over
-/// the column rule on the crossing cell (equal specificity → source order
-/// decides).
+/// The active row and column share one tint (`#181a1c`); the cursor cell uses
+/// the same `#2d2f31` rdom uses elsewhere for focus (inputs, the tree cursor),
+/// so a focused cell reads consistently with the rest of the UI. The cell rule
+/// is listed last so it wins over the column rule on the crossing cell (equal
+/// specificity → source order decides).
+///
+/// Note: a focused `<table>` also gets rdom's UA `:focus` background tint
+/// (`#2d2f31`) across its whole area — reset it (`table:focus { background:
+/// reset }`, as the example does) so the cursor cross-hair stands out instead
+/// of the whole table washing to the focus color.
 ///
 /// Each selector is wrapped in **`:where()`** so the whole rule carries **zero
 /// specificity** (it still only matches a focused table's active cells —
@@ -366,8 +372,8 @@ fn set_flag(dom: &mut TuiDom, id: NodeId, attr: &str, on: bool) {
 pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
     // #181a1c — shared row/column tint.
     let line = Color::Rgb(0x18, 0x1a, 0x1c);
-    // #1f2123 — the cursor cell, one step brighter.
-    let cell = Color::Rgb(0x1f, 0x21, 0x23);
+    // #2d2f31 — the cursor cell, matching rdom's focus tint (inputs/tree).
+    let cell = Color::Rgb(0x2d, 0x2f, 0x31);
     vec![
         (
             ":where(table:focus tr[data-active-row])",

@@ -78,6 +78,16 @@ fn count_bg(dom: &mut TuiDom, sheet: &Stylesheet, viewport: Rect, bg: Color) -> 
     n
 }
 
+/// The default highlight plus a reset of the generic focus tint — how a real
+/// app wires it (and necessary now that the cursor cell shares `#2d2f31` with
+/// the UA `table:focus` background, which would otherwise wash the whole
+/// focused table that color).
+fn highlight_sheet() -> Stylesheet {
+    highlight_stylesheet()
+        .rule("table:focus", TuiStyle::new().bg(Color::Reset))
+        .unwrap()
+}
+
 /// Mount a focused, navigated grid ready for paint assertions: cursor at row 1,
 /// table focused, an 8-row window shown.
 fn focused_navigated_grid() -> (TuiDom, NodeId) {
@@ -186,9 +196,9 @@ fn highlight_is_focus_gated_at_paint() {
     view.show_window(&mut dom, 0, 8);
     view.navigate(&mut dom, Nav::Down); // cursor at row 1
 
-    let sheet = highlight_stylesheet();
+    let sheet = highlight_sheet(); // defaults + table:focus tint reset
     let viewport = Rect::new(0, 0, 40, 12);
-    let cursor_bg = Color::Rgb(0x1f, 0x21, 0x23); // #1f2123 — the cursor cell
+    let cursor_bg = Color::Rgb(0x2d, 0x2f, 0x31); // #2d2f31 — the cursor cell (focus tint)
 
     // Unfocused: the focus-gated rule must not paint the cursor.
     assert_eq!(
@@ -208,16 +218,24 @@ fn highlight_is_focus_gated_at_paint() {
 #[test]
 fn highlight_colors_are_opt_in_defaults() {
     // The `data-active-*` attributes are the contract; the colors are not.
-    // With no highlight CSS at all, the default cursor color is never painted —
-    // styling is purely the consumer's CSS.
+    // With a bare sheet (no highlight rules) the cursor/line colors are never
+    // painted — styling is purely the consumer's CSS. (Bare, not `new()`,
+    // because the cursor cell now shares the UA `:focus` tint #2d2f31, which a
+    // focused table would otherwise show on its own background.)
     let (mut dom, _table) = focused_navigated_grid();
     let viewport = Rect::new(0, 0, 40, 12);
-    let default_cell = Color::Rgb(0x1f, 0x21, 0x23);
+    let cell = Color::Rgb(0x2d, 0x2f, 0x31);
+    let line = Color::Rgb(0x18, 0x1a, 0x1c);
 
     assert_eq!(
-        count_bg(&mut dom, &Stylesheet::new(), viewport, default_cell),
+        count_bg(&mut dom, &Stylesheet::bare(), viewport, cell),
         0,
-        "without highlight CSS, the default cursor color is never painted"
+        "without highlight CSS, the cursor-cell color is never painted"
+    );
+    assert_eq!(
+        count_bg(&mut dom, &Stylesheet::bare(), viewport, line),
+        0,
+        "without highlight CSS, the row/column tint is never painted"
     );
 }
 
@@ -233,7 +251,7 @@ fn consumer_css_overrides_default_colors() {
     let viewport = Rect::new(0, 0, 40, 12);
 
     let custom = Color::Rgb(0x80, 0x00, 0x00); // a color our defaults never use
-    let sheet = highlight_stylesheet()
+    let sheet = highlight_sheet() // defaults + tint reset
         .rule("td[data-active-cell]", TuiStyle::new().bg(custom))
         .unwrap();
 
@@ -242,7 +260,7 @@ fn consumer_css_overrides_default_colors() {
         "a plain low-specificity author rule paints its own cursor color"
     );
     assert_eq!(
-        count_bg(&mut dom, &sheet, viewport, Color::Rgb(0x1f, 0x21, 0x23)),
+        count_bg(&mut dom, &sheet, viewport, Color::Rgb(0x2d, 0x2f, 0x31)),
         0,
         "the zero-specificity default cursor color is fully overridden"
     );

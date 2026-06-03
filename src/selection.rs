@@ -129,6 +129,44 @@ impl GridSelection {
         self.all = false;
     }
 
+    /// Commit the active rectangular range into the sticky toggled set as a
+    /// unit, then collapse the range — so a `Space` press over a live
+    /// `Shift`-range turns the whole rectangle into a persistent selection
+    /// (Shift-select, `Space`, move, Shift-select, `Space`, … builds multiple
+    /// ranges). If every cell of the range is already toggled it is *removed*
+    /// (a true toggle); otherwise the whole range is *added*. Returns `false`
+    /// (and does nothing) when no range is active, so the caller can fall back
+    /// to toggling the single cursor cell. No-op when the mode is `None`.
+    pub fn toggle_range(&mut self) -> bool {
+        if self.mode == SelectionMode::None {
+            return false;
+        }
+        let Some((ar, ac)) = self.anchor else {
+            return false;
+        };
+        let (hr, hc) = self.head;
+        let (r0, r1) = (ar.min(hr), ar.max(hr));
+        let (c0, c1) = match self.mode {
+            SelectionMode::Row => (0, 0),
+            _ => (ac.min(hc), ac.max(hc)),
+        };
+        let keys: Vec<(usize, usize)> = (r0..=r1)
+            .flat_map(|r| (c0..=c1).map(move |c| (r, c)))
+            .map(|(r, c)| self.key(r, c))
+            .collect();
+        let all_present = keys.iter().all(|k| self.toggled.contains(k));
+        if all_present {
+            for k in &keys {
+                self.toggled.remove(k);
+            }
+        } else {
+            self.toggled.extend(keys);
+        }
+        self.anchor = None;
+        self.all = false;
+        true
+    }
+
     /// Select the whole grid (`Ctrl-A`). No-op when the mode is `None`.
     pub fn select_all(&mut self) {
         if self.mode == SelectionMode::None {
@@ -260,6 +298,61 @@ mod tests {
         s.collapse_transient();
         assert!(s.is_selected(7, 1), "explicit toggles survive a plain move");
         assert!(!s.is_selected(0, 0), "but select-all stays collapsed");
+    }
+
+    #[test]
+    fn toggle_range_commits_the_rectangle() {
+        let mut s = GridSelection::new(SelectionMode::Cell);
+        s.extend((1, 1), (2, 2)); // live range rows 1..2, cols 1..2
+        assert!(s.toggle_range(), "there was a range to commit");
+        // The range is collapsed, but its cells are now in the sticky set:
+        assert!(s.anchor.is_none(), "range collapsed after commit");
+        assert!(s.is_selected(1, 1));
+        assert!(s.is_selected(2, 2));
+        assert!(s.is_selected(1, 2));
+        // …so a plain move keeps them (they're toggled now, not a range).
+        s.collapse_transient();
+        assert!(s.is_selected(1, 1), "committed range survives a plain move");
+        // Re-selecting the same rect and toggling again removes it as a unit.
+        s.extend((1, 1), (2, 2));
+        s.toggle_range();
+        assert!(
+            !s.is_selected(2, 2),
+            "toggling an already-selected range clears it"
+        );
+    }
+
+    #[test]
+    fn toggle_range_builds_multiple_ranges() {
+        let mut s = GridSelection::new(SelectionMode::Cell);
+        s.extend((0, 0), (1, 0)); // range A
+        s.toggle_range();
+        s.extend((5, 1), (6, 2)); // range B (after moving + re-extending)
+        s.toggle_range();
+        assert!(s.is_selected(0, 0), "range A held");
+        assert!(s.is_selected(1, 0), "range A held");
+        assert!(s.is_selected(5, 1), "range B held");
+        assert!(s.is_selected(6, 2), "range B held");
+        assert!(!s.is_selected(3, 0), "gap between ranges is unselected");
+    }
+
+    #[test]
+    fn toggle_range_without_a_range_is_a_noop() {
+        let mut s = GridSelection::new(SelectionMode::Cell);
+        assert!(
+            !s.toggle_range(),
+            "no range → caller falls back to single-cell"
+        );
+    }
+
+    #[test]
+    fn toggle_range_in_row_mode_commits_whole_rows() {
+        let mut s = GridSelection::new(SelectionMode::Row);
+        s.extend((2, 0), (4, 0));
+        s.toggle_range();
+        assert!(s.is_selected(2, 9), "row 2, any column");
+        assert!(s.is_selected(4, 0));
+        assert!(!s.is_selected(5, 0));
     }
 
     #[test]

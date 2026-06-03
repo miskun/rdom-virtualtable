@@ -85,8 +85,12 @@ Configurable, consumer-side, same attribute-contract pattern as the cursor.
   tests.
 - `VirtualTableView`: `set_selection_mode` / `selection_mode` / `selection()` (query snapshot), and
   `extend_selection` / `toggle_selection` / `select_all` / `clear_selection`. `install_nav` routes
-  **Shift+arrows** (extend), **Space** (toggle cursor cell/row), **Ctrl-A** (all), **Esc** (clear)
-  when a mode is set. **A plain (unmodified) arrow collapses the *transient* selections** — an
+  **Shift+arrows** (extend), **Space** (toggle), **Ctrl-A** (all), **Esc** (clear)
+  when a mode is set. **Space over a live Shift-range commits the whole rectangle** into the sticky
+  toggled set (and collapses the range) — Shift-select → Space → move → Shift-select → Space builds
+  multiple persistent ranges, the standard-friendly answer to multi-range keyboard selection (a true
+  toggle: an already-selected range is removed). With no live range, Space toggles the cursor
+  cell/row. **A plain (unmodified) arrow collapses the *transient* selections** — an
   in-progress Shift-range **and** a Ctrl-A select-all (`collapse_transient`) — matching every
   spreadsheet/grid; the explicitly **Space-toggled set survives** until Esc (it's the keyboard
   stand-in for Ctrl+click, so collapsing it would make discontiguous keyboard selection unusable).

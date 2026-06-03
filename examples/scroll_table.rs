@@ -44,7 +44,7 @@ fn flex_col() -> TuiStyle {
 
 fn title_str(row: usize, col: usize) -> String {
     format!(
-        "row {row} · col {col} / {ROWS}  ·  ↑↓←→ move · Shift+↑↓←→ select · Space toggle · \
+        "row {row} · col {col} / {ROWS}  ·  ↑↓←→ move · Shift+↑↓←→ select · Space toggle/commit · \
          Ctrl-A all · Esc clear · Ctrl-C quit",
     )
 }

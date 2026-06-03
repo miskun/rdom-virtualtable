@@ -565,3 +565,42 @@ fn plain_move_collapses_select_all_but_keeps_toggles() {
         "the toggled cell survives a plain move"
     );
 }
+
+#[test]
+fn space_commits_a_shift_range_and_builds_multiple_ranges() {
+    // A live Shift-range + Space commits the whole rectangle into the sticky
+    // set (and collapses the range), so Shift-select → Space → move →
+    // Shift-select → Space accumulates multiple persistent ranges.
+    let view = grid(20, 3);
+    let mut dom = TuiDom::new();
+    let root = dom.root();
+    let table = view.mount(&mut dom);
+    dom.append_child(root, table).unwrap();
+    view.set_viewport_rows(12);
+    view.show_window(&mut dom, 0, 12);
+    view.set_selection_mode(SelectionMode::Cell);
+
+    // Range A: Shift+Down (rect (0,0)..(1,0)), Space commits it.
+    view.extend_selection(&mut dom, Nav::Down);
+    view.toggle_selection(&mut dom);
+    view.navigate(&mut dom, Nav::Down); // plain move away → A must persist
+    assert!(
+        view.selection().is_selected(0, 0),
+        "committed range A persists"
+    );
+    assert!(view.selection().is_selected(1, 0));
+
+    // Range B: move to (4,1), Shift+Down (rect (4,1)..(5,1)), Space commits.
+    view.navigate(&mut dom, Nav::Down); // (3,0)
+    view.navigate(&mut dom, Nav::Down); // (4,0)
+    view.navigate(&mut dom, Nav::Right); // (4,1)
+    view.extend_selection(&mut dom, Nav::Down);
+    view.toggle_selection(&mut dom);
+    assert!(view.selection().is_selected(0, 0), "range A still held");
+    assert!(view.selection().is_selected(4, 1), "range B held");
+    assert!(view.selection().is_selected(5, 1));
+    assert!(
+        !view.selection().is_selected(3, 0),
+        "the gap between ranges is unselected"
+    );
+}

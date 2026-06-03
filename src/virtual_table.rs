@@ -325,11 +325,19 @@ impl VirtualTableView {
         after != before
     }
 
-    /// Toggle the cursor's cell (or row, in `Row` mode) in the selection
-    /// (`Space`).
+    /// Toggle the selection at the cursor (`Space`). If a `Shift`-range is
+    /// live, the **whole rectangle** is committed into the sticky set (and the
+    /// range collapses) — so Shift-select + `Space` builds a persistent range,
+    /// repeatable for multiple ranges. With no live range it toggles just the
+    /// cursor cell (or row, in `Row` mode).
     pub fn toggle_selection(&self, dom: &mut TuiDom) {
         let c = self.cursor.get();
-        self.selection.borrow_mut().toggle(c.row(), c.col());
+        {
+            let mut sel = self.selection.borrow_mut();
+            if !sel.toggle_range() {
+                sel.toggle(c.row(), c.col());
+            }
+        }
         self.apply_highlight(dom);
     }
 

@@ -54,11 +54,14 @@
 //! [`SelectionMode::Cell`] (rectangular cell ranges) or [`SelectionMode::Row`]
 //! (whole rows); [`SelectionMode::None`] (default) disables it. With a mode
 //! set, [`install_nav`](VirtualTableView::install_nav) also wires
-//! **`Shift`+arrows** (extend a range), **`Space`** (toggle the cursor
-//! cell/row), **`Ctrl-A`** (select all), and **`Esc`** (clear). A plain
-//! arrow collapses the *transient* selections (an in-progress range and a
-//! `Ctrl-A` select-all), like any spreadsheet; the explicitly `Space`-toggled
-//! set survives until `Esc`. Selection is
+//! **`Shift`+arrows** (extend a range), **`Space`** (toggle), **`Ctrl-A`**
+//! (select all), and **`Esc`** (clear). `Space` over a live `Shift`-range
+//! commits the whole rectangle into the sticky set (then collapses the range),
+//! so Shift-select → `Space` → move → … builds multiple ranges; with no live
+//! range it toggles the cursor cell/row. A plain arrow collapses the
+//! *transient* selections (an in-progress range and a `Ctrl-A` select-all),
+//! like any spreadsheet; the explicitly `Space`-toggled set survives until
+//! `Esc`. Selection is
 //! reflected as **`data-selected`** on each selected `<td>` (and the `<tr>` of
 //! any row with a selection), styled by the same focus-gated, `:where()`
 //! defaults; query it with [`VirtualTableView::selection`] →

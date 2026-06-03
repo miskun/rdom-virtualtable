@@ -81,8 +81,11 @@ view.set_selection_mode(SelectionMode::Cell); // rectangular cell ranges
 # }
 ```
 
-With a mode set, `install_nav` also wires **Shift+arrows** (extend a range), **Space** (toggle the
-cursor cell/row), **Ctrl-A** (select all), **Esc** (clear). A plain (unmodified) arrow **collapses
+With a mode set, `install_nav` also wires **Shift+arrows** (extend a range), **Space** (toggle),
+**Ctrl-A** (select all), **Esc** (clear). **Space over a live Shift-range commits the whole
+rectangle** into the persistent selection (then collapses the range), so Shift-select → Space →
+move → Shift-select → Space builds multiple ranges by keyboard; with no live range Space toggles the
+cursor cell/row. A plain (unmodified) arrow **collapses
 the transient selections** — an in-progress Shift-range and a Ctrl-A select-all — like any
 spreadsheet; the explicitly **Space-toggled cells stay** until Esc, so you can navigate between
 cells to build a discontiguous selection by keyboard. Selected cells get **`data-selected`** (and

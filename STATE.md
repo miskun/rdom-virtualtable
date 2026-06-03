@@ -293,3 +293,22 @@ caught the worst issues before any feature code, and a gating prototype validate
   `tr` styles. Gate clean (fmt / clippy -D warnings / all suites + 4 new scrollbar tests).
   - *Non-blocking — `VirtualTableView` keeps growing* (now + scroll). The hide/resize work should
     finally split a module (carried from the M3 gate).
+
+### M5 gate — column hide/show + module split
+
+- **Architect:** Closed the long-carried god-object finding (M3→M4). The split is principled:
+  `model.rs` is the DOM-free core (separately unit-tested, fields private, view uses accessors);
+  the view's column-ops live in a `virtual_table/columns.rs` **child** module that reaches the
+  parent's private fields — encapsulation preserved, no `pub(crate)` leak. Hide/show reuses the
+  established attribute-contract pattern (`data-vt-hidden` + a zero-specificity default rule) rather
+  than inline `display:none`, which would clobber header column widths. The hidden set remaps
+  through reorder (tested). Gate clean (fmt / clippy -D warnings / all suites; +2 model, +2 render).
+  - *Non-blocking — cursor-on-own-hidden-column.* Hiding the column the cursor is *on* leaves the
+    cursor on an invisible column until the next horizontal move (skip only fires on nav). Minor;
+    a consumer can move the cursor first. Documented behavior.
+  - *Non-blocking — `mod.rs` is still the largest file* (lifecycle + nav + selection + scroll). The
+    next split candidate is a `scroll.rs` / `interaction.rs` child if it keeps growing; not pressing.
+- **API:** `set_column_hidden(dom, col, hidden)` mirrors the `move_column` shape; `data-vt-hidden`
+  is a CSS contract a consumer can restyle (e.g. collapse instead of remove). Cursor skips hidden
+  columns, so keyboard nav never lands on an invisible cell after a move. No blocking findings;
+  M3-remaining is now just column *resize* (a substrate ask).

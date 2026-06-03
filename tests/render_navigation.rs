@@ -78,14 +78,12 @@ fn count_bg(dom: &mut TuiDom, sheet: &Stylesheet, viewport: Rect, bg: Color) -> 
     n
 }
 
-/// The default highlight plus a reset of the generic focus tint — how a real
-/// app wires it (and necessary now that the cursor cell shares `#2d2f31` with
-/// the UA `table:focus` background, which would otherwise wash the whole
-/// focused table that color).
+/// The default highlight, as a real app wires it. As of rdom-tui 0.3.4 the UA
+/// focus tint is scoped to interactive controls, so a focused `<table>` is not
+/// washed — no `table:focus { background: reset }` workaround is needed; this
+/// is just `highlight_stylesheet()`.
 fn highlight_sheet() -> Stylesheet {
     highlight_stylesheet()
-        .rule("table:focus", TuiStyle::new().bg(Color::Reset))
-        .unwrap()
 }
 
 /// Mount a focused, navigated grid ready for paint assertions: cursor at row 1,
@@ -251,7 +249,7 @@ fn consumer_css_overrides_default_colors() {
     let viewport = Rect::new(0, 0, 40, 12);
 
     let custom = Color::Rgb(0x80, 0x00, 0x00); // a color our defaults never use
-    let sheet = highlight_sheet() // defaults + tint reset
+    let sheet = highlight_sheet()
         .rule("td[data-active-cell]", TuiStyle::new().bg(custom))
         .unwrap();
 
@@ -263,5 +261,28 @@ fn consumer_css_overrides_default_colors() {
         count_bg(&mut dom, &sheet, viewport, Color::Rgb(0x2d, 0x2f, 0x31)),
         0,
         "the zero-specificity default cursor color is fully overridden"
+    );
+}
+
+#[test]
+fn focused_table_needs_no_focus_tint_reset() {
+    // rdom-tui 0.3.4 scopes the UA focus tint to interactive controls, so a
+    // focused `<table>` is no longer washed with the focus background — the
+    // old `table:focus { background: reset }` workaround is now a no-op.
+    // Proof: rendering with vs without the reset paints the SAME number of
+    // focus-color cells (only the cursor cross-hair, no full-table wash).
+    let (mut dom, _table) = focused_navigated_grid();
+    let viewport = Rect::new(0, 0, 40, 12);
+    let focus_color = Color::Rgb(0x2d, 0x2f, 0x31);
+
+    let with_reset = highlight_stylesheet()
+        .rule("table:focus", TuiStyle::new().bg(Color::Reset))
+        .unwrap();
+
+    let without = count_bg(&mut dom, &highlight_stylesheet(), viewport, focus_color);
+    let with = count_bg(&mut dom, &with_reset, viewport, focus_color);
+    assert_eq!(
+        without, with,
+        "the table:focus reset changes nothing in 0.3.4 — a focused table isn't tinted"
     );
 }

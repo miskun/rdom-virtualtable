@@ -61,9 +61,18 @@ documented rdom enhancement when we hit it (the same loop that drove rdom 0.3.0�
 - Tests: +7 unit (cursor moves/clamp/follow + keymap) and +3 integration (attributes mark the right
   row/col/cell incl. header; nav past the window shifts + re-highlights while staying bounded;
   highlight is focus-gated at paint). **Total: 22 (15 unit + 6 integration + 1 doctest).**
-- `examples/scroll_table.rs` — now a navigable 500-row demo (`install_nav` + `highlight_stylesheet`,
-  with a `table:focus { background: reset }` rule to suppress the generic focus tint so only the
-  cross-hair shows). Live `row · col` read-out in the title.
+- `examples/scroll_table.rs` — a navigable 500-row demo (`install_nav` + `highlight_stylesheet`),
+  live `row · col` read-out in the title.
+
+## Shipped — rdom-tui 0.3.4 bump (focus vocabulary)
+
+Bumped `rdom-tui = "0.3.4"`, which ships rdom's `FOCUS-VOCAB-1`: the UA focus tint is now scoped to
+interactive controls, so a focused `<table>` is no longer washed with the focus background. Dropped
+the `table:focus { background: reset }` workaround from the example and the test helper — it's a
+no-op now. New regression test `focused_table_needs_no_focus_tint_reset` proves rendering with vs
+without the reset is identical (a focused table isn't tinted). The cursor cross-hair (data-active-*
++ `:where()` defaults) is unchanged; the cursor cell still uses rdom's focus color `#2d2f31`.
+**25 tests (15 unit + 9 integration + 1 doctest).**
 
 ## Roadmap (not yet done)
 

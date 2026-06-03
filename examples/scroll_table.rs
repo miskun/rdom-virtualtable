@@ -21,8 +21,8 @@
 use std::io;
 
 use rdom_tui::{
-    App, Color, Direction, Display, Flow, ListenerOptions, NodeId, Padding, Size, TuiDom,
-    TuiNodeMutExt, TuiStyle, Value,
+    App, Direction, Display, Flow, ListenerOptions, NodeId, Padding, Size, TuiDom, TuiNodeMutExt,
+    TuiStyle, Value,
 };
 use rdom_virtualtable::{Column, VirtualTable, VirtualTableView, highlight_stylesheet};
 
@@ -108,11 +108,8 @@ fn main() -> io::Result<()> {
     })
     .unwrap();
 
-    // The cursor highlight (data-active-* rules) plus a reset of the generic
-    // focus tint, so the whole table isn't washed gray — only the cross-hair
-    // under the cursor is colored.
-    let sheet = highlight_stylesheet()
-        .rule("table:focus", TuiStyle::new().bg(Color::Reset))
-        .unwrap();
-    App::new(dom, sheet)?.run()
+    // Just the cursor-highlight rules. As of rdom-tui 0.3.4 the UA focus tint
+    // is scoped to interactive controls, so a focused `<table>` is no longer
+    // washed gray — no `table:focus { background: reset }` workaround needed.
+    App::new(dom, highlight_stylesheet())?.run()
 }

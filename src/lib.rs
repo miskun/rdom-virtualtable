@@ -46,7 +46,7 @@
 //! The default rules are wrapped in `:where()` so they carry **zero
 //! specificity** — any author rule of any specificity overrides them, exactly
 //! like overriding a browser UA style (no `table:focus` prefix or specificity
-//! matching needed). Requires rdom-tui ≥ 0.3.3.
+//! matching needed). Requires rdom-tui ≥ 0.3.4.
 
 mod grid_cursor;
 mod virtual_table;

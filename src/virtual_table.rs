@@ -359,16 +359,15 @@ fn set_flag(dom: &mut TuiDom, id: NodeId, attr: &str, on: bool) {
 /// is listed last so it wins over the column rule on the crossing cell (equal
 /// specificity → source order decides).
 ///
-/// Note: a focused `<table>` also gets rdom's UA `:focus` background tint
-/// (`#2d2f31`) across its whole area — reset it (`table:focus { background:
-/// reset }`, as the example does) so the cursor cross-hair stands out instead
-/// of the whole table washing to the focus color.
+/// (As of rdom-tui 0.3.4 the UA focus tint is scoped to interactive controls,
+/// so a focused `<table>` is not washed with the focus background — no
+/// `table:focus { background: reset }` workaround is needed.)
 ///
 /// Each selector is wrapped in **`:where()`** so the whole rule carries **zero
 /// specificity** (it still only matches a focused table's active cells —
 /// `:where()` changes specificity, not matching). That makes these true
 /// *defaults*: any author rule of any specificity overrides them, exactly like
-/// overriding a browser UA style. Requires rdom-tui ≥ 0.3.3.
+/// overriding a browser UA style. Requires rdom-tui ≥ 0.3.4.
 pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
     // #181a1c — shared row/column tint.
     let line = Color::Rgb(0x18, 0x1a, 0x1c);

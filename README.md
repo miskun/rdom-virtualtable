@@ -13,7 +13,7 @@ materializes **only the visible row window**. A dataset of any size renders a bo
 ```toml
 [dependencies]
 rdom-virtualtable = "0.1"
-rdom-tui = "0.3.3"
+rdom-tui = "0.3.4"
 ```
 
 ## Try it

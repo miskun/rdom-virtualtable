@@ -46,6 +46,29 @@ fn col0_text(dom: &TuiDom, table: NodeId) -> Vec<String> {
     out
 }
 
+/// The `c`-th `<td>` text of each `<tr>` under `<tbody>`, in DOM order.
+fn col_text(dom: &TuiDom, table: NodeId, c: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    for child in dom.node(table).children() {
+        if child.node_name() == "tbody" {
+            for tr in child.children().filter(|c| c.node_name() == "tr") {
+                if let Some(td) = tr.children().filter(|c| c.node_name() == "td").nth(c) {
+                    out.push(td.text_content());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Header `<th>` text contents in column order.
+fn header_texts(dom: &TuiDom, table: NodeId) -> Vec<String> {
+    header_ids(dom, table)
+        .into_iter()
+        .map(|th| dom.node(th).text_content())
+        .collect()
+}
+
 /// `<th>` node ids in column order.
 fn header_ids(dom: &TuiDom, table: NodeId) -> Vec<NodeId> {
     for child in dom.node(table).children() {
@@ -161,4 +184,52 @@ fn sorted_header_shows_the_direction_glyph() {
         !has_symbol(&mut dom, &sheet, vp, "▲"),
         "old direction glyph removed"
     );
+}
+
+#[test]
+fn move_column_reorders_headers_and_cells() {
+    let view = view_with(&[&["a0", "b0", "c0"], &["a1", "b1", "c1"]], 3);
+    let mut dom = TuiDom::new();
+    let table = mounted(&view, &mut dom, 8);
+    assert_eq!(header_texts(&dom, table), ["c0", "c1", "c2"]);
+
+    view.move_column(&mut dom, 0, 2); // first column → end
+    assert_eq!(header_texts(&dom, table), ["c1", "c2", "c0"]);
+    // The moved column's data now lives at position 2; old col 1 is at 0.
+    assert_eq!(col_text(&dom, table, 0), ["b0", "b1"]);
+    assert_eq!(col_text(&dom, table, 2), ["a0", "a1"]);
+}
+
+#[test]
+fn move_column_carries_the_sort_indicator_with_the_column() {
+    let view = view_with(&[&["1", "2", "3"]], 3);
+    let mut dom = TuiDom::new();
+    let table = mounted(&view, &mut dom, 8);
+    view.sort(&mut dom, 2, SortDir::Ascending);
+    let hs = header_ids(&dom, table);
+    assert_eq!(dom.get_attribute(hs[2], "data-sort"), Some("asc"));
+
+    view.move_column(&mut dom, 2, 0); // sorted column moves to the front
+    assert_eq!(view.sort_state(), Some((0, SortDir::Ascending)));
+    // `<th>` nodes don't move (text is reassigned), so the same ids re-checked:
+    assert_eq!(dom.get_attribute(hs[0], "data-sort"), Some("asc"));
+    assert_eq!(dom.get_attribute(hs[2], "data-sort"), None);
+}
+
+#[test]
+fn move_column_clears_selection_and_cursor_follows() {
+    let view = view_with(&[&["a0", "b0", "c0"], &["a1", "b1", "c1"]], 3);
+    let mut dom = TuiDom::new();
+    let _table = mounted(&view, &mut dom, 8);
+    view.set_selection_mode(SelectionMode::Cell);
+    view.select_all(&mut dom);
+    assert!(view.selection().is_active());
+    assert_eq!(view.cursor().col(), 0);
+
+    view.move_column(&mut dom, 0, 2); // cursor's column (0) → 2
+    assert!(
+        !view.selection().is_active(),
+        "reorder clears the selection"
+    );
+    assert_eq!(view.cursor().col(), 2, "cursor follows its column");
 }

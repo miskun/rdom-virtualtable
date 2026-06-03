@@ -110,6 +110,23 @@ Configurable, consumer-side, same attribute-contract pattern as the cursor.
   focus-gated selection *paint* test). **Total: 40 (24 unit + 15 integration + 1 doctest).**
 - `examples/scroll_table.rs` opts into `SelectionMode::Cell` + an updated keymap read-out.
 
+## Shipped — column reorder (M3, part 2)
+
+Move a column, consumer-first — no DOM-node surgery (the `<th>` nodes stay put; their text is
+reassigned, data flows through fixed positions, exactly like the cells).
+
+- `VirtualTable::move_column(from, to)` — permutes `columns` + **every row's cell** by the same
+  move, and remaps the recorded sort column so the sort follows. `remapped_index(from, to, i)` is
+  the pure index map (also used to move the cursor). No-op for out-of-range/equal indices.
+- `VirtualTableView::move_column(dom, from, to)` — mutates the model, **moves the cursor with its
+  column** (`GridCursor::at`), **clears the selection** (a structural change, like sort), re-syncs
+  the header labels/glyph (`apply_sort_indicator`), and re-materializes the window. The header
+  `<th>` nodes are *not* moved — their text is reassigned — so node identity + listeners survive.
+- Tests: +5 unit (permutes cols+rows, no-op guards, remaps sort col, `remapped_index` map) and +3
+  integration (headers+cells reorder, sort indicator follows the moved column, selection cleared +
+  cursor follows). **Total: 64 (37 unit + 26 integration + 1 doctest).**
+- `examples/scroll_table.rs`: **`[`** / **`]`** move the cursor's column left / right.
+
 ## Shipped — sort (M3, part 1)
 
 Model-side sort + a CSS-contract header indicator, consumer-first.
@@ -135,8 +152,8 @@ Model-side sort + a CSS-contract header indicator, consumer-first.
 
 ## Roadmap (not yet done)
 
-- **M3 — column ops (cont.):** column *reorder* (move a column, DOM + model) next. Column *resize*
-  needs custom layout → flag as an rdom substrate ask.
+- **M3 — column ops (remaining):** column *hide/show* (consumer-side, like reorder). Column *resize*
+  needs custom layout → flag as an rdom substrate ask. (Sort + reorder shipped above.)
 - **Substrate-friction backlog (promote to rdom when hit):**
   - `table::size_columns` ignores generated `::before`/`::after` content width and runs pre-cascade —
     so a CSS `::after` sort glyph is clipped. Once it measures pseudo width (post-cascade), move the

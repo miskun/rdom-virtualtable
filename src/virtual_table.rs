@@ -156,6 +156,44 @@ impl VirtualTable {
         self.sort = Some((col, dir));
     }
 
+    /// Move the column at `from` to index `to`, permuting the header and
+    /// **every row's cell** by the same amount so the model stays consistent.
+    /// The recorded sort column (if any) is remapped so the sort follows its
+    /// column. No-op for out-of-range or equal indices.
+    pub fn move_column(&mut self, from: usize, to: usize) {
+        let n = self.columns.len();
+        if from >= n || to >= n || from == to {
+            return;
+        }
+        let col = self.columns.remove(from);
+        self.columns.insert(to, col);
+        for row in &mut self.rows {
+            if from < row.len() {
+                let cell = row.remove(from);
+                row.insert(to.min(row.len()), cell);
+            }
+        }
+        if let Some((c, dir)) = self.sort {
+            self.sort = Some((Self::remapped_index(from, to, c), dir));
+        }
+    }
+
+    /// Where index `i` lands after [`move_column(from, to)`](Self::move_column)
+    /// — pure, so the view can remap the cursor column the same way. `from`
+    /// maps to `to`; indices between shift by one toward the vacated slot;
+    /// everything outside `[from, to]` is unchanged.
+    pub fn remapped_index(from: usize, to: usize, i: usize) -> usize {
+        if i == from {
+            to
+        } else if from < to {
+            if i > from && i <= to { i - 1 } else { i }
+        } else if i >= to && i < from {
+            i + 1
+        } else {
+            i
+        }
+    }
+
     /// Compute the row window to materialize: `(start, count)` for a
     /// viewport that can show `viewport_rows` data rows, scrolled so the
     /// top visible row is `scroll_y`. Pure — the unit of testing for the
@@ -457,6 +495,27 @@ impl VirtualTableView {
             _ => SortDir::Ascending,
         };
         self.sort(dom, col, dir);
+    }
+
+    /// Move the column at `from` to index `to`: permutes the model (header +
+    /// every row's cell), re-syncs the headers + sort glyph, and
+    /// re-materializes the visible window in the new order. The **cursor
+    /// follows** its column; the **selection is cleared** (a structural change,
+    /// like sort). No-op for out-of-range or equal indices.
+    pub fn move_column(&self, dom: &mut TuiDom, from: usize, to: usize) {
+        let (rows, cols) = self.with(|t| (t.row_count(), t.columns().len()));
+        if from >= cols || to >= cols || from == to {
+            return;
+        }
+        self.with(|t| t.move_column(from, to));
+        let cur = self.cursor.get();
+        let new_col = VirtualTable::remapped_index(from, to, cur.col());
+        self.cursor.set(cur.at(cur.row(), new_col, rows, cols));
+        self.selection.borrow_mut().clear();
+        // Headers persist across `show_window`, so re-sync their labels/glyph
+        // to the new order *before* refresh (so `size_columns` measures right).
+        self.apply_sort_indicator(dom);
+        self.refresh(dom);
     }
 
     /// Re-materialize the currently-shown window (same start + count) — call
@@ -821,5 +880,60 @@ mod tests {
         t.sort_by_with(0, SortDir::Ascending, |x, y| x.len().cmp(&y.len()));
         assert_eq!(col0(&t), vec!["a", "bb", "ccc"]);
         assert_eq!(t.sort_state(), Some((0, SortDir::Ascending)));
+    }
+
+    fn headers(t: &VirtualTable) -> Vec<&str> {
+        t.columns().iter().map(|c| c.header.as_str()).collect()
+    }
+
+    #[test]
+    fn move_column_permutes_columns_and_every_row() {
+        let mut t = VirtualTable::new(vec![Column::new("a"), Column::new("b"), Column::new("c")]);
+        t.set_rows(vec![
+            vec!["a0".into(), "b0".into(), "c0".into()],
+            vec!["a1".into(), "b1".into(), "c1".into()],
+        ]);
+        t.move_column(0, 2); // a → end: [b, c, a]
+        assert_eq!(headers(&t), ["b", "c", "a"]);
+        assert_eq!(t.rows()[0], ["b0", "c0", "a0"]);
+        assert_eq!(t.rows()[1], ["b1", "c1", "a1"]);
+
+        t.move_column(2, 0); // a → front: [a, b, c]
+        assert_eq!(headers(&t), ["a", "b", "c"]);
+        assert_eq!(t.rows()[0], ["a0", "b0", "c0"]);
+    }
+
+    #[test]
+    fn move_column_is_a_noop_for_invalid_or_equal_indices() {
+        let mut t = VirtualTable::new(vec![Column::new("a"), Column::new("b")]);
+        t.set_rows(vec![vec!["x".into(), "y".into()]]);
+        t.move_column(0, 0); // equal
+        t.move_column(0, 9); // out of range
+        t.move_column(9, 0);
+        assert_eq!(headers(&t), ["a", "b"]);
+        assert_eq!(t.rows()[0], ["x", "y"]);
+    }
+
+    #[test]
+    fn move_column_remaps_the_sort_column() {
+        let mut t = VirtualTable::new(vec![Column::new("a"), Column::new("b"), Column::new("c")]);
+        t.set_rows(vec![vec!["1".into(), "2".into(), "3".into()]]);
+        t.sort_by(2, SortDir::Ascending); // sort column c (index 2)
+        t.move_column(2, 0); // c moves to the front → sort follows to index 0
+        assert_eq!(t.sort_state(), Some((0, SortDir::Ascending)));
+    }
+
+    #[test]
+    fn remapped_index_tracks_a_move() {
+        // move 0 → 2: 0↦2, 1↦0, 2↦1, 3 unchanged
+        assert_eq!(VirtualTable::remapped_index(0, 2, 0), 2);
+        assert_eq!(VirtualTable::remapped_index(0, 2, 1), 0);
+        assert_eq!(VirtualTable::remapped_index(0, 2, 2), 1);
+        assert_eq!(VirtualTable::remapped_index(0, 2, 3), 3);
+        // move 2 → 0: 2↦0, 0↦1, 1↦2, 3 unchanged
+        assert_eq!(VirtualTable::remapped_index(2, 0, 2), 0);
+        assert_eq!(VirtualTable::remapped_index(2, 0, 0), 1);
+        assert_eq!(VirtualTable::remapped_index(2, 0, 1), 2);
+        assert_eq!(VirtualTable::remapped_index(2, 0, 3), 3);
     }
 }

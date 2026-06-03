@@ -75,6 +75,12 @@
 //! [`VirtualTable::sort_by_with`] takes a custom comparator (the sort hook).
 //! The sorted header carries **`data-sort="asc|desc"`** (the CSS contract) plus
 //! a `▲`/`▼` glyph. Sorting clears the selection (it's keyed by row index).
+//!
+//! ## Column reorder
+//!
+//! [`VirtualTableView::move_column`] moves a column, permuting the header and
+//! every row's cell; the cursor and the sort indicator follow the moved
+//! column. Like sort, it clears the selection.
 
 mod grid_cursor;
 mod selection;

@@ -44,8 +44,8 @@ fn flex_col() -> TuiStyle {
 
 fn title_str(row: usize, col: usize) -> String {
     format!(
-        "row {row} · col {col} / {ROWS}  ·  ↑↓←→ move · Shift+↑↓←→ select · Space toggle/commit · \
-         s sort col · Ctrl-A all · Esc clear · Ctrl-C quit",
+        "row {row} · col {col} / {ROWS}  ·  ↑↓←→ move · Shift+↑↓←→ select · Space toggle · \
+         s sort · [ ] move col · Ctrl-A all · Esc clear · Ctrl-C quit",
     )
 }
 
@@ -104,17 +104,23 @@ fn main() -> io::Result<()> {
     view.set_selection_mode(SelectionMode::Cell);
     dom.set_focused(Some(table));
 
-    // Press `s` to sort by the cursor's column (toggles asc⇄desc). `install_nav`
-    // leaves `s` unhandled, so this listener picks it up.
+    // `s` sorts the cursor's column (toggles asc⇄desc); `[` / `]` move the
+    // cursor's column left / right. `install_nav` leaves these keys unhandled,
+    // so this listener picks them up.
     let vs = view.clone();
     dom.add_event_listener(table, "keydown", ListenerOptions::default(), move |ctx| {
-        if let Some(kbd) = ctx.event.detail.as_keyboard() {
-            if kbd.key == "s" {
-                let col = vs.cursor().col();
-                vs.toggle_sort(ctx.dom, col);
-                ctx.request_redraw();
-            }
+        let Some(kbd) = ctx.event.detail.as_keyboard() else {
+            return;
+        };
+        let col = vs.cursor().col();
+        let cols = vs.with(|t| t.columns().len());
+        match kbd.key.as_str() {
+            "s" => vs.toggle_sort(ctx.dom, col),
+            "[" if col > 0 => vs.move_column(ctx.dom, col, col - 1),
+            "]" if col + 1 < cols => vs.move_column(ctx.dom, col, col + 1),
+            _ => return,
         }
+        ctx.request_redraw();
     })
     .unwrap();
 

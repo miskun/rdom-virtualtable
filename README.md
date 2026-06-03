@@ -111,6 +111,19 @@ lexicographic) and **stable**; pass your own via `VirtualTable::sort_by_with`. T
 gets **`data-sort="asc|desc"`** (style it however you like) plus a `▲`/`▼` glyph. Sorting clears the
 selection (it's keyed by row index, which now points at different data).
 
+## Reorder columns
+
+```rust,ignore
+# use rdom_virtualtable::VirtualTableView;
+# use rdom_tui::TuiDom;
+# fn demo(view: &VirtualTableView, dom: &mut TuiDom) {
+view.move_column(dom, 0, 2); // move column 0 to index 2
+# }
+```
+
+`move_column` permutes the header and every row's cell, the cursor follows its column, and the sort
+indicator stays on the moved column. (Like sort, it clears the selection.)
+
 ## Status
 
 Shipped:
@@ -124,9 +137,10 @@ Shipped:
   Ctrl-A / Esc; `data-selected` CSS contract + query API.
 - **Sort** — `sort` / `toggle_sort` with a numeric-aware default comparator and a custom-comparator
   hook; `data-sort` header contract + a ▲/▼ glyph.
+- **Column reorder** — `move_column`; cursor + sort indicator follow the moved column.
 
-Planned: column reorder / resize / hide; a scrollbar spacer; side-loaded data sources; persistence.
-See `STATE.md`.
+Planned: column hide/show + resize; a scrollbar spacer; side-loaded data sources; persistence. See
+`STATE.md`.
 
 ## License
 

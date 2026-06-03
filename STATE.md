@@ -86,7 +86,11 @@ Configurable, consumer-side, same attribute-contract pattern as the cursor.
 - `VirtualTableView`: `set_selection_mode` / `selection_mode` / `selection()` (query snapshot), and
   `extend_selection` / `toggle_selection` / `select_all` / `clear_selection`. `install_nav` routes
   **Shift+arrows** (extend), **Space** (toggle cursor cell/row), **Ctrl-A** (all), **Esc** (clear)
-  when a mode is set; a plain move collapses the range. `apply_highlight` now also writes
+  when a mode is set. **A plain (unmodified) arrow collapses the *transient* selections** — an
+  in-progress Shift-range **and** a Ctrl-A select-all (`collapse_transient`) — matching every
+  spreadsheet/grid; the explicitly **Space-toggled set survives** until Esc (it's the keyboard
+  stand-in for Ctrl+click, so collapsing it would make discontiguous keyboard selection unusable).
+  `apply_highlight` now also writes
   **`data-selected`** on each selected `<td>` (and the `<tr>` of a selected row), gated by
   `nav_active` like the cursor.
 - **Selection contract:** `data-selected` presence attributes; default `:where()`-wrapped,

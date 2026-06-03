@@ -146,10 +146,14 @@ impl GridSelection {
         self.all = false;
     }
 
-    /// Drop the rectangular range only (a plain cursor move collapses it),
-    /// keeping toggled cells and select-all.
-    pub fn collapse_range(&mut self) {
+    /// Collapse the *transient* selections — an in-progress rectangular range
+    /// and a `Ctrl-A` select-all — as a plain (unmodified) cursor move does,
+    /// matching every spreadsheet/grid. The explicitly `Space`-toggled set is
+    /// kept: it's the keyboard "add to selection" gesture (the TUI stand-in for
+    /// `Ctrl`+click) and only `Esc` ([`clear`](Self::clear)) drops it.
+    pub fn collapse_transient(&mut self) {
         self.anchor = None;
+        self.all = false;
     }
 }
 
@@ -235,9 +239,27 @@ mod tests {
         let mut s = GridSelection::new(SelectionMode::Cell);
         s.toggle(4, 4);
         s.extend((0, 0), (2, 2));
-        s.collapse_range();
+        s.collapse_transient();
         assert!(!s.is_selected(1, 1), "range dropped");
         assert!(s.is_selected(4, 4), "toggled kept");
+    }
+
+    #[test]
+    fn collapse_clears_select_all_keeps_toggled() {
+        // A plain cursor move collapses the *transient* selections — an
+        // in-progress range AND a Ctrl-A select-all — but the explicitly
+        // Space-toggled set survives until Esc (the keyboard "add to selection"
+        // gesture; collapsing it would make it unusable).
+        let mut s = GridSelection::new(SelectionMode::Cell);
+        s.toggle(4, 4);
+        s.select_all(); // Ctrl-A (note: this clears toggled, like a spreadsheet)
+        s.collapse_transient();
+        assert!(!s.is_selected(0, 0), "select-all collapsed on a plain move");
+        // Re-toggle then collapse: the toggle survives a plain move.
+        s.toggle(7, 1);
+        s.collapse_transient();
+        assert!(s.is_selected(7, 1), "explicit toggles survive a plain move");
+        assert!(!s.is_selected(0, 0), "but select-all stays collapsed");
     }
 
     #[test]

@@ -82,8 +82,11 @@ view.set_selection_mode(SelectionMode::Cell); // rectangular cell ranges
 ```
 
 With a mode set, `install_nav` also wires **Shift+arrows** (extend a range), **Space** (toggle the
-cursor cell/row), **Ctrl-A** (select all), **Esc** (clear). Selected cells get **`data-selected`**
-(and the `<tr>` of any selected row) — same focus-gated, `:where()`-defaulted, fully-overridable CSS
+cursor cell/row), **Ctrl-A** (select all), **Esc** (clear). A plain (unmodified) arrow **collapses
+the transient selections** — an in-progress Shift-range and a Ctrl-A select-all — like any
+spreadsheet; the explicitly **Space-toggled cells stay** until Esc, so you can navigate between
+cells to build a discontiguous selection by keyboard. Selected cells get **`data-selected`** (and
+the `<tr>` of any selected row) — same focus-gated, `:where()`-defaulted, fully-overridable CSS
 contract as the cursor. Query it with `view.selection().is_selected(row, col)`.
 
 ## Status

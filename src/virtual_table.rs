@@ -272,14 +272,16 @@ impl VirtualTableView {
 
     /// Apply a navigation move to the cursor, scroll to keep it visible,
     /// re-materialize the window if it shifted, and update the highlight
-    /// attributes. A plain move collapses any selection range. Returns `true`
-    /// if the cursor actually moved.
+    /// attributes. A plain move collapses the *transient* selections (an
+    /// in-progress range and a `Ctrl-A` select-all) while keeping the
+    /// `Space`-toggled set — see [`GridSelection::collapse_transient`]. Returns
+    /// `true` if the cursor actually moved.
     pub fn navigate(&self, dom: &mut TuiDom, nav: Nav) -> bool {
         self.nav_active.set(true);
         let Some((before, after)) = self.move_cursor(nav) else {
             return false;
         };
-        self.selection.borrow_mut().collapse_range();
+        self.selection.borrow_mut().collapse_transient();
         self.refresh_after_cursor(dom, after);
         after != before
     }

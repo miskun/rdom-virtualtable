@@ -528,3 +528,40 @@ fn cursor_cell_is_blue_only_when_selected() {
         "a selected cursor cell turns blue to fit the selection field"
     );
 }
+
+#[test]
+fn plain_move_collapses_select_all_but_keeps_toggles() {
+    // Best-practice: a plain (unmodified) arrow collapses the *transient*
+    // selections — an in-progress range and a Ctrl-A select-all — but the
+    // explicitly Space-toggled set survives until Esc.
+    let view = grid(20, 3);
+    let mut dom = TuiDom::new();
+    let root = dom.root();
+    let table = view.mount(&mut dom);
+    dom.append_child(root, table).unwrap();
+    view.set_viewport_rows(8);
+    view.show_window(&mut dom, 0, 8);
+    view.set_selection_mode(SelectionMode::Cell);
+
+    // Ctrl-A selects everything; a plain arrow collapses it.
+    view.select_all(&mut dom);
+    assert!(view.selection().is_selected(5, 2), "Ctrl-A selects all");
+    view.navigate(&mut dom, Nav::Down);
+    assert!(
+        !view.selection().is_selected(5, 2),
+        "a plain move collapses Ctrl-A select-all"
+    );
+
+    // A Space-toggle is the explicit accumulate gesture — it survives moves.
+    view.toggle_selection(&mut dom); // toggles the current cursor cell
+    let c = view.cursor();
+    assert!(
+        view.selection().is_selected(c.row(), c.col()),
+        "Space toggles the cursor cell"
+    );
+    view.navigate(&mut dom, Nav::Down);
+    assert!(
+        view.selection().is_selected(c.row(), c.col()),
+        "the toggled cell survives a plain move"
+    );
+}

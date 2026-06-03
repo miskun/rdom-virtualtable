@@ -3,10 +3,10 @@
 //! row count (via spacer rows), wheel/drag re-windows decoupled from the
 //! cursor, and cursor navigation scrolls the view to keep the cursor visible.
 
-use rdom_tui::render::{LayoutExt, Rect};
+use rdom_tui::render::{Buffer, LayoutExt, PaintExt, Rect};
 use rdom_tui::style::{CascadeExt, Stylesheet};
-use rdom_tui::{NodeId, TuiAccessors, TuiAccessorsMut, TuiDom};
-use rdom_virtualtable::{Column, Nav, VirtualTable, VirtualTableView};
+use rdom_tui::{Color, NodeId, TuiAccessors, TuiAccessorsMut, TuiDom};
+use rdom_virtualtable::{Column, Nav, VirtualTable, VirtualTableView, highlight_stylesheet};
 
 const VP: u16 = 10;
 
@@ -135,5 +135,44 @@ fn spacers_are_marked_and_excluded_from_the_data_window() {
         view.mounted_row_count(),
         VP as usize,
         "only the VP-row window is tracked as data (spacers excluded)"
+    );
+}
+
+/// Cascade + layout + paint, then test whether any cell renders foreground `fg`.
+fn has_fg(dom: &mut TuiDom, sheet: &Stylesheet, vp: Rect, fg: Color) -> bool {
+    dom.cascade(sheet);
+    dom.layout_dom(vp);
+    let mut buf = Buffer::empty(vp);
+    dom.paint_dom(&mut buf, vp);
+    for y in vp.y..vp.bottom() {
+        for x in vp.x..vp.right() {
+            if let Some(c) = buf.cell(x, y) {
+                if c.fg == fg {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+#[test]
+fn focused_table_accents_its_scrollbar_thumb() {
+    // FOCUS-VOCAB-1: a focused scroll region shows an accent (DodgerBlue) thumb.
+    // The substrate's `:focus-within::scrollbar-thumb` can't fire (the <tbody>
+    // scroll container is a child of the focused <table>), so the default sheet
+    // bridges it.
+    let (mut dom, _view, table, _tbody) = scroll_grid(500, 2);
+    let vp = Rect::new(0, 0, 40, VP + 4);
+    let dodger = Color::Rgb(30, 144, 255);
+
+    assert!(
+        !has_fg(&mut dom, &highlight_stylesheet(), vp, dodger),
+        "unfocused → gray thumb, no accent"
+    );
+    dom.set_focused(Some(table));
+    assert!(
+        has_fg(&mut dom, &highlight_stylesheet(), vp, dodger),
+        "focused → accent scrollbar thumb"
     );
 }

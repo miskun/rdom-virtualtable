@@ -903,6 +903,16 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
             ":where(table:focus td[data-active-cell][data-selected])",
             TuiStyle::new().bg(cell_blue),
         ),
+        // Focused-scroll affordance (rdom `FOCUS-VOCAB-1`): a focused scroll
+        // region shows an accent (DodgerBlue) thumb glyph. The substrate's UA
+        // `:focus-within::scrollbar-thumb` can't fire for `enable_scrollbar`
+        // because the scroll container (`<tbody>`) is a *child* of the focused
+        // `<table>` (focus is on the parent, not within the tbody) — so bridge
+        // it: when the table holds focus, accent its body scrollbar thumb.
+        (
+            ":where(table:focus-within tbody)::scrollbar-thumb",
+            TuiStyle::new().fg(Color::Rgb(30, 144, 255)),
+        ),
     ]
 }
 

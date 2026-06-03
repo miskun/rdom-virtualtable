@@ -179,6 +179,10 @@ web's spacer technique + the standard `scrollTop` accessor).
   height), keyboard nav reaches the rest. Sticky-header was abandoned: the consumer can't set
   `position: sticky; top: 0` via the public `TuiStyle` (`Length` unexported, no `top()` builder) —
   the tbody-scroll design sidesteps it (prototype-validated before building).
+- **Focused-scroll affordance (`FOCUS-VOCAB-1`):** a focused table accents its body scrollbar thumb
+  (DodgerBlue). The substrate's UA `:focus-within::scrollbar-thumb` can't fire — the scroll
+  container (`<tbody>`) is a *child* of the focused `<table>`, so focus is on the parent, not within
+  the tbody — so the default sheet bridges it with `:where(table:focus-within tbody)::scrollbar-thumb`.
 - **Horizontal scroll** of a wide table: wrap it in a `Row`-flex `overflow-x` container (the web
   `<div overflow-x:auto>` pattern); a `<table>` can't be its own cross-axis scroll container
   (rdom `SCROLL-CROSS-AXIS-1`). No component code needed.

@@ -92,10 +92,12 @@
 //! scroll thumb reflects the **total** row count while only the window is
 //! materialized. Wheel / drag re-window **decoupled** from the cursor
 //! (spreadsheet-style); keyboard navigation scrolls the view to keep the
-//! cursor visible. Assumes uniform single-cell rows; the draggable thumb spans
-//! the first ~65k rows (keyboard nav reaches the rest). For **horizontal**
-//! scroll of a wide table, wrap it in a `Row`-flex `overflow-x` container (a
-//! `<table>` can't be its own cross-axis scroll container).
+//! cursor visible. When the table holds focus its scrollbar thumb shows the
+//! accent (DodgerBlue) — the rdom `FOCUS-VOCAB-1` focused-scroll affordance.
+//! Assumes uniform single-cell rows; the draggable thumb spans the first ~65k
+//! rows (keyboard nav reaches the rest). For **horizontal** scroll of a wide
+//! table, wrap it in a `Row`-flex `overflow-x` container (a `<table>` can't be
+//! its own cross-axis scroll container).
 
 mod grid_cursor;
 mod selection;

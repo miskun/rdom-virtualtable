@@ -89,8 +89,11 @@ Configurable, consumer-side, same attribute-contract pattern as the cursor.
   **`data-selected`** on each selected `<td>` (and the `<tr>` of a selected row), gated by
   `nav_active` like the cursor.
 - **Selection contract:** `data-selected` presence attributes; default `:where()`-wrapped,
-  focus-gated blue (`#1e3a5f`) fill in `highlight_rules`, ordered so the cursor cell (`#2d2f31`)
-  stays visible inside a selection. Fully overridable (zero specificity).
+  focus-gated blue (`#1e3a5f`) fill in `highlight_rules`. A selected cell that also sits in the
+  active row/column gets a brighter `#2b557e` (pre-computed "selection over the cross-hair" blend —
+  a TUI can't alpha-composite opaque cells, so the highlight shows through instead of being flatly
+  overpainted), and the cursor cell (`#2d2f31`) wins last so it stays visible inside a selection.
+  Precedence is pure source order (all zero-specificity `:where()`). Fully overridable.
 - Tests: +6 integration (cell rect, whole-row, toggle, select-all/clear, none-mode no-op, and a
   focus-gated selection *paint* test). **Total: 40 (24 unit + 15 integration + 1 doctest).**
 - `examples/scroll_table.rs` opts into `SelectionMode::Cell` + an updated keymap read-out.

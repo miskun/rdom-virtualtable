@@ -473,12 +473,14 @@ fn set_flag(dom: &mut TuiDom, id: NodeId, attr: &str, on: bool) {
 /// - `data-selected` on every selected `<td>` (and the `<tr>` of a row with any
 ///   selection), painted a distinct blue (`#1e3a5f`).
 ///
-/// The active row and column share one tint (`#181a1c`); selected cells are a
-/// blue fill (`#1e3a5f`); the cursor cell uses the same `#2d2f31` rdom uses
-/// elsewhere for focus (inputs, the tree cursor). Source order sets precedence
-/// (all rules are equal-specificity `:where()`): row/column tint, then
-/// selection, then the cursor cell last — so the cursor stays visible even
-/// inside a selection.
+/// Colors, in source-order precedence (all rules are equal zero-specificity
+/// `:where()`, so later wins): the active row/column tint (`#181a1c`), then the
+/// selection blue (`#1e3a5f`), then a brighter blue (`#2b557e`) where a
+/// selected cell *also* sits in the active row/column — a pre-computed
+/// "selection over the cross-hair" blend, since a TUI can't alpha-composite
+/// opaque cells, so the highlight shows through instead of being flatly
+/// overpainted — then the cursor cell (`#2d2f31`, rdom's focus color) last, so
+/// the cursor stays visible inside a selection.
 ///
 /// (As of rdom-tui 0.3.4 the UA focus tint is scoped to interactive controls,
 /// so a focused `<table>` is not washed with the focus background — no
@@ -494,6 +496,11 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
     let line = Color::Rgb(0x18, 0x1a, 0x1c);
     // #1e3a5f — selected cells (a distinct blue).
     let selected = Color::Rgb(0x1e, 0x3a, 0x5f);
+    // #2b557e — a selected cell that also sits in the active row/column. A TUI
+    // can't alpha-composite opaque cells, so this is the pre-computed "selection
+    // over the row/column tint" — a brighter blue so the cross-hair shows
+    // through the selection instead of being flatly overpainted.
+    let selected_line = Color::Rgb(0x2b, 0x55, 0x7e);
     // #2d2f31 — the cursor cell, matching rdom's focus tint (inputs/tree).
     let cell = Color::Rgb(0x2d, 0x2f, 0x31);
     vec![
@@ -513,6 +520,18 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
             ":where(table:focus td[data-selected])",
             TuiStyle::new().bg(selected),
         ),
+        // Selection ∩ row/column highlight → the blend (listed after the plain
+        // selection so it wins on the intersection; all rules are equal
+        // zero-specificity `:where()`, so source order decides).
+        (
+            ":where(table:focus td[data-selected][data-active-col])",
+            TuiStyle::new().bg(selected_line),
+        ),
+        (
+            ":where(table:focus tr[data-active-row] td[data-selected])",
+            TuiStyle::new().bg(selected_line),
+        ),
+        // The cursor cell wins last, so it stays visible inside a selection.
         (
             ":where(table:focus td[data-active-cell])",
             TuiStyle::new().bg(cell),

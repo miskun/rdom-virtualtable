@@ -445,13 +445,51 @@ fn selection_paints_when_focused() {
     view.set_viewport_rows(8);
     view.show_window(&mut dom, 0, 8);
     view.set_selection_mode(SelectionMode::Cell);
-    view.extend_selection(&mut dom, Nav::Down); // rect (0,0)..(1,0)
+    // Toggle (0,0), then move the cursor away (different row AND column) so the
+    // toggled cell stays plainly selected — not on the cross-hair, which would
+    // blend to #2b557e.
+    view.toggle_selection(&mut dom); // toggle (0,0)
+    view.navigate(&mut dom, Nav::Down);
+    view.navigate(&mut dom, Nav::Down);
+    view.navigate(&mut dom, Nav::Right); // cursor (2,1); (0,0) is plain-selected
     dom.set_focused(Some(table));
 
     let viewport = Rect::new(0, 0, 40, 12);
     let selection_blue = Color::Rgb(0x1e, 0x3a, 0x5f);
     assert!(
         count_bg(&mut dom, &highlight_stylesheet(), viewport, selection_blue) > 0,
-        "selected cells paint the selection color when the table is focused"
+        "a selected cell off the cursor's row/column paints the plain selection color"
+    );
+}
+
+#[test]
+fn selection_blends_with_the_cursor_crosshair() {
+    let view = grid(20, 4);
+    let mut dom = TuiDom::new();
+    let root = dom.root();
+    let table = view.mount(&mut dom);
+    dom.append_child(root, table).unwrap();
+    dom.node_mut(table).set_attribute("tabindex", "0").ok();
+    view.set_viewport_rows(8);
+    view.show_window(&mut dom, 0, 8);
+    view.set_selection_mode(SelectionMode::Cell);
+    // Rect (0,0)..(2,2); cursor ends at (2,2) → active row 2 + active col 2
+    // intersect the selection.
+    view.extend_selection(&mut dom, Nav::Down);
+    view.extend_selection(&mut dom, Nav::Down);
+    view.extend_selection(&mut dom, Nav::Right);
+    view.extend_selection(&mut dom, Nav::Right);
+    dom.set_focused(Some(table));
+
+    let vp = Rect::new(0, 0, 40, 12);
+    let plain = Color::Rgb(0x1e, 0x3a, 0x5f); // selection outside the cross-hair
+    let blend = Color::Rgb(0x2b, 0x55, 0x7e); // selection ∩ active row/col
+    assert!(
+        count_bg(&mut dom, &highlight_stylesheet(), vp, blend) > 0,
+        "selected cells in the active row/column use the blend (#2b557e)"
+    );
+    assert!(
+        count_bg(&mut dom, &highlight_stylesheet(), vp, plain) > 0,
+        "selected cells outside the cross-hair use the plain selection (#1e3a5f)"
     );
 }

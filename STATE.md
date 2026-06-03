@@ -178,3 +178,32 @@ Run the Grumpy Chief Architect + Product/API passes at each milestone; record fi
   the lens/`<tree>` pattern; focus-gated default means zero-config-correct out of the box and fully
   overridable. `install_nav` is one call; `navigate` + `Nav` + `nav_for_key` let consumers BYO
   keymap. Gate clean (fmt / clippy -D warnings / 22 tests). No blocking findings.
+
+### M3 gate — column ops (sort + reorder)
+
+- **Architect:** Pure model ops (`sort_by` / `sort_by_with` / `move_column` / `remapped_index`) are
+  isolated and unit-tested incl. edge cases (numeric-aware, stable, no-op guards, sort-col remap);
+  the view layer is thin orchestration (mutate model → re-sync headers → `refresh`). `refresh` is a
+  good single re-render primitive shared by sort/reorder/`with`. Gate clean (fmt / clippy -D warnings
+  / 64 tests).
+  - *Non-blocking — destructive, O(n) model mutation.* Both sort (`rows.sort_by`, O(n log n)) and
+    reorder (`move_column`, O(rows) cell shuffles) **physically reorder the row data**, so the
+    original order is lost and a reorder touches every row. Fine for explicit, infrequent actions at
+    current scale; for very large datasets a non-destructive **column display-permutation** (O(cols),
+    rows untouched) would be cheaper and reversible. Recorded as a future option, not a fix now.
+  - *Non-blocking — `VirtualTableView` is growing.* mount + window + nav + selection + sort + reorder
+    + highlight now live on one struct (~450 lines). Still coherent, but the next column feature
+    (hide/resize) should prompt splitting out a column-ops and/or highlight module.
+  - *Non-blocking — substrate friction (recorded above).* `size_columns` ignores `::after` width and
+    runs pre-cascade, forcing the sort glyph into header text instead of a pure-CSS `::after` default.
+- **API:** Sort surface is clean and contract-first: `data-sort="asc|desc"` mirrors `aria-sort`, the
+  numeric-aware default "just works", and `sort_by_with` is the documented hook. `toggle_sort` /
+  `move_column` are one-call header handlers; cursor + sort indicator follow a moved column, which is
+  the intuitive behavior. `rows()` + `refresh()` give consumers a clean read + re-render path.
+  - *Non-blocking — selection cleared on sort/reorder.* Honest (selection is row-index-keyed) and
+    documented, but a spreadsheet-style consumer may expect selection to follow the data. Revisit
+    with a row-identity-keyed selection.
+  - *Non-blocking — glyph in `text_content`.* `th.text_content()` returns e.g. `"c0 ▲"`; the model's
+    `Column.header` stays clean. Acceptable; resolves once the glyph moves to `::after`.
+  - No blocking findings. M2 (selection) was not formally gated — its contract is covered by tests
+    and the M3 review touched its sort/reorder interactions.

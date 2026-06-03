@@ -6,7 +6,9 @@
 use rdom_tui::render::{Buffer, LayoutExt, PaintExt, Rect};
 use rdom_tui::style::{CascadeExt, Stylesheet};
 use rdom_tui::{Color, NodeId, TuiDom, TuiStyle};
-use rdom_virtualtable::{Column, Nav, VirtualTable, VirtualTableView, highlight_stylesheet};
+use rdom_virtualtable::{
+    Column, Nav, SelectionMode, VirtualTable, VirtualTableView, highlight_stylesheet,
+};
 
 fn grid(rows: usize, cols: usize) -> VirtualTableView {
     let columns = (0..cols).map(|c| Column::new(format!("c{c}"))).collect();
@@ -284,5 +286,172 @@ fn focused_table_needs_no_focus_tint_reset() {
     assert_eq!(
         without, with,
         "the table:focus reset changes nothing in 0.3.4 — a focused table isn't tinted"
+    );
+}
+
+// ── Selection (M2) ────────────────────────────────────────────────
+
+#[test]
+fn cell_selection_marks_the_rectangle() {
+    let view = grid(10, 3);
+    let mut dom = TuiDom::new();
+    let root = dom.root();
+    let table = view.mount(&mut dom);
+    dom.append_child(root, table).unwrap();
+    view.set_viewport_rows(10);
+    view.show_window(&mut dom, 0, 10);
+    view.set_selection_mode(SelectionMode::Cell);
+
+    // From (0,0): Shift-Down, Down, Right → rect rows 0..2, cols 0..1.
+    view.extend_selection(&mut dom, Nav::Down);
+    view.extend_selection(&mut dom, Nav::Down);
+    view.extend_selection(&mut dom, Nav::Right);
+
+    let rows = tbody_rows(&dom, table);
+    for (i, &tr) in rows.iter().enumerate() {
+        for (c, td) in row_cells(&dom, tr).into_iter().enumerate() {
+            let want = i <= 2 && c <= 1;
+            assert_eq!(
+                dom.has_attribute(td, "data-selected"),
+                want,
+                "cell (row {i}, col {c}) data-selected"
+            );
+        }
+    }
+}
+
+#[test]
+fn row_selection_marks_whole_rows() {
+    let view = grid(10, 3);
+    let mut dom = TuiDom::new();
+    let root = dom.root();
+    let table = view.mount(&mut dom);
+    dom.append_child(root, table).unwrap();
+    view.set_viewport_rows(10);
+    view.show_window(&mut dom, 0, 10);
+    view.set_selection_mode(SelectionMode::Row);
+
+    // From row 0: Shift-Down twice → rows 0..2 selected, every column.
+    view.extend_selection(&mut dom, Nav::Down);
+    view.extend_selection(&mut dom, Nav::Down);
+
+    let rows = tbody_rows(&dom, table);
+    for (i, &tr) in rows.iter().enumerate() {
+        let want = i <= 2;
+        assert_eq!(
+            dom.has_attribute(tr, "data-selected"),
+            want,
+            "row {i} <tr> data-selected"
+        );
+        for (c, td) in row_cells(&dom, tr).into_iter().enumerate() {
+            assert_eq!(
+                dom.has_attribute(td, "data-selected"),
+                want,
+                "row {i} col {c} <td> data-selected (whole row in Row mode)"
+            );
+        }
+    }
+}
+
+#[test]
+fn space_toggles_the_cursor_cell() {
+    let view = grid(10, 3);
+    let mut dom = TuiDom::new();
+    let root = dom.root();
+    let table = view.mount(&mut dom);
+    dom.append_child(root, table).unwrap();
+    view.set_viewport_rows(10);
+    view.show_window(&mut dom, 0, 10);
+    view.set_selection_mode(SelectionMode::Cell);
+
+    view.navigate(&mut dom, Nav::Down); // cursor (1,0)
+    view.navigate(&mut dom, Nav::Right); // cursor (1,1)
+    view.toggle_selection(&mut dom);
+
+    let td = row_cells(&dom, tbody_rows(&dom, table)[1])[1];
+    assert!(
+        dom.has_attribute(td, "data-selected"),
+        "toggled cell selected"
+    );
+    view.toggle_selection(&mut dom);
+    assert!(
+        !dom.has_attribute(td, "data-selected"),
+        "toggling again clears it"
+    );
+}
+
+#[test]
+fn select_all_then_clear() {
+    let view = grid(8, 3);
+    let mut dom = TuiDom::new();
+    let root = dom.root();
+    let table = view.mount(&mut dom);
+    dom.append_child(root, table).unwrap();
+    view.set_viewport_rows(8);
+    view.show_window(&mut dom, 0, 8);
+    view.set_selection_mode(SelectionMode::Cell);
+
+    view.select_all(&mut dom);
+    let all_selected = |dom: &TuiDom| {
+        tbody_rows(dom, table).iter().all(|&tr| {
+            row_cells(dom, tr)
+                .iter()
+                .all(|&td| dom.has_attribute(td, "data-selected"))
+        })
+    };
+    assert!(all_selected(&dom), "Ctrl-A selects every cell");
+
+    view.clear_selection(&mut dom);
+    let none_selected = tbody_rows(&dom, table).iter().all(|&tr| {
+        row_cells(&dom, tr)
+            .iter()
+            .all(|&td| !dom.has_attribute(td, "data-selected"))
+    });
+    assert!(none_selected, "Esc clears the selection");
+}
+
+#[test]
+fn no_selection_attributes_when_mode_is_none() {
+    // Default mode is None — extend/toggle/select-all are no-ops.
+    let view = grid(8, 3);
+    let mut dom = TuiDom::new();
+    let root = dom.root();
+    let table = view.mount(&mut dom);
+    dom.append_child(root, table).unwrap();
+    view.set_viewport_rows(8);
+    view.show_window(&mut dom, 0, 8);
+
+    view.extend_selection(&mut dom, Nav::Down);
+    view.toggle_selection(&mut dom);
+    view.select_all(&mut dom);
+
+    let any = tbody_rows(&dom, table).iter().any(|&tr| {
+        row_cells(&dom, tr)
+            .iter()
+            .any(|&td| dom.has_attribute(td, "data-selected"))
+    });
+    assert!(!any, "no data-selected when SelectionMode::None");
+    assert!(!view.selection().is_active());
+}
+
+#[test]
+fn selection_paints_when_focused() {
+    let view = grid(20, 3);
+    let mut dom = TuiDom::new();
+    let root = dom.root();
+    let table = view.mount(&mut dom);
+    dom.append_child(root, table).unwrap();
+    dom.node_mut(table).set_attribute("tabindex", "0").ok();
+    view.set_viewport_rows(8);
+    view.show_window(&mut dom, 0, 8);
+    view.set_selection_mode(SelectionMode::Cell);
+    view.extend_selection(&mut dom, Nav::Down); // rect (0,0)..(1,0)
+    dom.set_focused(Some(table));
+
+    let viewport = Rect::new(0, 0, 40, 12);
+    let selection_blue = Color::Rgb(0x1e, 0x3a, 0x5f);
+    assert!(
+        count_bg(&mut dom, &highlight_stylesheet(), viewport, selection_blue) > 0,
+        "selected cells paint the selection color when the table is focused"
     );
 }

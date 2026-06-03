@@ -74,10 +74,29 @@ without the reset is identical (a focused table isn't tinted). The cursor cross-
 + `:where()` defaults) is unchanged; the cursor cell still uses rdom's focus color `#2d2f31`.
 **25 tests (15 unit + 9 integration + 1 doctest).**
 
+## Shipped — selection (M2)
+
+Configurable, consumer-side, same attribute-contract pattern as the cursor.
+
+- `selection.rs` — pure, unit-tested `GridSelection` + `SelectionMode {None (default/off), Cell,
+  Row}`. Selection is the *union* of a rectangular range (shift-anchor → cursor head), a toggled
+  set, and select-all; `is_selected(row, col)` is mode-aware (Row mode ignores the column). 9 unit
+  tests.
+- `VirtualTableView`: `set_selection_mode` / `selection_mode` / `selection()` (query snapshot), and
+  `extend_selection` / `toggle_selection` / `select_all` / `clear_selection`. `install_nav` routes
+  **Shift+arrows** (extend), **Space** (toggle cursor cell/row), **Ctrl-A** (all), **Esc** (clear)
+  when a mode is set; a plain move collapses the range. `apply_highlight` now also writes
+  **`data-selected`** on each selected `<td>` (and the `<tr>` of a selected row), gated by
+  `nav_active` like the cursor.
+- **Selection contract:** `data-selected` presence attributes; default `:where()`-wrapped,
+  focus-gated blue (`#1e3a5f`) fill in `highlight_rules`, ordered so the cursor cell (`#2d2f31`)
+  stays visible inside a selection. Fully overridable (zero specificity).
+- Tests: +6 integration (cell rect, whole-row, toggle, select-all/clear, none-mode no-op, and a
+  focus-gated selection *paint* test). **Total: 40 (24 unit + 15 integration + 1 doctest).**
+- `examples/scroll_table.rs` opts into `SelectionMode::Cell` + an updated keymap read-out.
+
 ## Roadmap (not yet done)
 
-- **M2 — selection:** shift+arrows rectangular range, `Space` toggle, `Ctrl-A` select-all, `Esc`
-  clear → `data-selected` attributes + a selection query API (web-faithful grid multi-select).
 - **M3 — column ops:** reorder (DOM swap, doable consumer-side) and sort hook. Column *resize* needs
   custom layout → flag as an rdom substrate ask.
 - **Substrate-friction backlog (promote to rdom when hit):** scrollbar spacer reflecting the *total*

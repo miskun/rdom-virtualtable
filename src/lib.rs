@@ -47,11 +47,26 @@
 //! specificity** — any author rule of any specificity overrides them, exactly
 //! like overriding a browser UA style (no `table:focus` prefix or specificity
 //! matching needed). Requires rdom-tui ≥ 0.3.4.
+//!
+//! ## Selection (configurable; off by default)
+//!
+//! Opt in with [`VirtualTableView::set_selection_mode`] —
+//! [`SelectionMode::Cell`] (rectangular cell ranges) or [`SelectionMode::Row`]
+//! (whole rows); [`SelectionMode::None`] (default) disables it. With a mode
+//! set, [`install_nav`](VirtualTableView::install_nav) also wires
+//! **`Shift`+arrows** (extend a range), **`Space`** (toggle the cursor
+//! cell/row), **`Ctrl-A`** (select all), and **`Esc`** (clear). Selection is
+//! reflected as **`data-selected`** on each selected `<td>` (and the `<tr>` of
+//! any row with a selection), styled by the same focus-gated, `:where()`
+//! defaults; query it with [`VirtualTableView::selection`] →
+//! [`GridSelection::is_selected`].
 
 mod grid_cursor;
+mod selection;
 mod virtual_table;
 
 pub use grid_cursor::{GridCursor, Nav, nav_for_key};
+pub use selection::{GridSelection, SelectionMode};
 pub use virtual_table::{
     Column, VirtualTable, VirtualTableView, highlight_rules, highlight_stylesheet,
 };

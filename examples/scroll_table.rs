@@ -24,7 +24,9 @@ use rdom_tui::{
     App, Direction, Display, Flow, ListenerOptions, NodeId, Padding, Size, TuiDom, TuiNodeMutExt,
     TuiStyle, Value,
 };
-use rdom_virtualtable::{Column, VirtualTable, VirtualTableView, highlight_stylesheet};
+use rdom_virtualtable::{
+    Column, SelectionMode, VirtualTable, VirtualTableView, highlight_stylesheet,
+};
 
 const ROWS: usize = 500;
 const VISIBLE: u16 = 14;
@@ -41,7 +43,10 @@ fn flex_col() -> TuiStyle {
 }
 
 fn title_str(row: usize, col: usize) -> String {
-    format!("row {row} · col {col}  of {ROWS}   ·   ↑↓←→/hjkl move · g/G ends · Ctrl-C quit",)
+    format!(
+        "row {row} · col {col} / {ROWS}  ·  ↑↓←→ move · Shift+↑↓←→ select · Space toggle · \
+         Ctrl-A all · Esc clear · Ctrl-C quit",
+    )
 }
 
 fn main() -> io::Result<()> {
@@ -93,6 +98,10 @@ fn main() -> io::Result<()> {
     // the cursor highlight from here on).
     view.show_window(&mut dom, 0, VISIBLE as usize);
     view.install_nav(&mut dom, table, VISIBLE);
+    // Opt into cell selection — Shift+arrows extend a rectangle, Space toggles,
+    // Ctrl-A selects all, Esc clears. (Try `SelectionMode::Row` for whole-row
+    // selection, or leave it `None` to disable.)
+    view.set_selection_mode(SelectionMode::Cell);
     dom.set_focused(Some(table));
 
     // Live cursor read-out in the title. Bubbles to root after the table's

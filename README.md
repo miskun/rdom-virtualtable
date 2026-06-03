@@ -69,6 +69,23 @@ let sheet = highlight_stylesheet()
     .unwrap();
 ```
 
+## Selection (configurable)
+
+Selection is **off by default**. Opt in with `set_selection_mode`:
+
+```rust,ignore
+# use rdom_virtualtable::{VirtualTableView, SelectionMode};
+# fn demo(view: &VirtualTableView) {
+view.set_selection_mode(SelectionMode::Cell); // rectangular cell ranges
+// view.set_selection_mode(SelectionMode::Row);  // …or whole rows
+# }
+```
+
+With a mode set, `install_nav` also wires **Shift+arrows** (extend a range), **Space** (toggle the
+cursor cell/row), **Ctrl-A** (select all), **Esc** (clear). Selected cells get **`data-selected`**
+(and the `<tr>` of any selected row) — same focus-gated, `:where()`-defaulted, fully-overridable CSS
+contract as the cursor. Query it with `view.selection().is_selected(row, col)`.
+
 ## Status
 
 Shipped:
@@ -78,9 +95,11 @@ Shipped:
 - **Keyboard navigation + cursor highlight** — a pure `GridCursor`, the `install_nav` keymap
   (arrows/`hjkl`, `g`/`G`/`Home`/`End`, `PageUp`/`PageDown`) with scroll-follow, and the
   `data-active-*` CSS highlight contract + a default focus-gated stylesheet.
+- **Selection** — configurable `SelectionMode::{None, Cell, Row}`; Shift-range / Space-toggle /
+  Ctrl-A / Esc; `data-selected` CSS contract + query API.
 
-Planned: row/cell **selection** (shift-range, toggle, select-all); sorting; column resize / reorder
-/ hide; a scrollbar spacer; side-loaded data sources; persistence. See `STATE.md`.
+Planned: sorting; column resize / reorder / hide; a scrollbar spacer; side-loaded data sources;
+persistence. See `STATE.md`.
 
 ## License
 

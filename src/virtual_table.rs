@@ -25,6 +25,7 @@ use rdom_tui::runtime::builtins::table::size_columns;
 use rdom_tui::{Color, ListenerOptions, NodeId, Size, Stylesheet, TuiDom, TuiNodeMutExt, TuiStyle};
 
 use crate::grid_cursor::{GridCursor, Nav, nav_for_key};
+use crate::selection::{GridSelection, SelectionMode};
 
 /// A table column: a header label and an optional fixed width (otherwise
 /// the column auto-sizes to its widest cell).
@@ -108,6 +109,8 @@ pub struct VirtualTableView {
     header_cells: Rc<RefCell<Vec<NodeId>>>,
     /// Logical keyboard cursor over the full dataset.
     cursor: Rc<Cell<GridCursor>>,
+    /// Selection state (configurable mode; off by default).
+    selection: Rc<RefCell<GridSelection>>,
     /// Visible data-row count — drives scroll-follow and the page step.
     viewport_rows: Rc<Cell<u16>>,
     /// Logical row that materialized pool row 0 currently represents.
@@ -128,6 +131,7 @@ impl VirtualTableView {
             mounted_cells: Rc::new(RefCell::new(Vec::new())),
             header_cells: Rc::new(RefCell::new(Vec::new())),
             cursor: Rc::new(Cell::new(GridCursor::new())),
+            selection: Rc::new(RefCell::new(GridSelection::new(SelectionMode::None))),
             viewport_rows: Rc::new(Cell::new(0)),
             window_start: Rc::new(Cell::new(0)),
             nav_active: Rc::new(Cell::new(false)),
@@ -235,37 +239,108 @@ impl VirtualTableView {
         self.cursor.get()
     }
 
-    /// Apply a navigation move to the cursor, scroll to keep it visible,
-    /// re-materialize the window if it shifted, and update the
-    /// `data-active-*` highlight attributes. Returns `true` if the cursor
-    /// actually moved.
-    ///
-    /// Engages navigation (so the highlight contract is honored from here
-    /// on) even if the move is a clamped no-op at a boundary.
-    pub fn navigate(&self, dom: &mut TuiDom, nav: Nav) -> bool {
-        self.nav_active.set(true);
+    /// Move the cursor per `nav`, clamped + scrolled into view, and return
+    /// `(before, after)`. Caller updates the selection, then calls
+    /// [`refresh_after_cursor`](Self::refresh_after_cursor). Returns `None`
+    /// for an empty grid.
+    fn move_cursor(&self, nav: Nav) -> Option<(GridCursor, GridCursor)> {
         let (rows, cols) = self.with(|t| (t.row_count(), t.columns().len()));
         if rows == 0 || cols == 0 {
-            return false;
+            return None;
         }
         let viewport = self.viewport_rows.get() as usize;
-        let page = viewport.max(1);
-
         let before = self.cursor.get();
         let after = before
-            .navigate(nav, rows, cols, page)
+            .navigate(nav, rows, cols, viewport.max(1))
             .follow(viewport, rows);
         self.cursor.set(after);
+        Some((before, after))
+    }
 
-        // Re-window only when the visible slice actually shifts; otherwise a
-        // cheap attribute re-paint is enough.
+    /// Re-materialize the window if the cursor scrolled it, else just re-apply
+    /// the highlight + selection attributes.
+    fn refresh_after_cursor(&self, dom: &mut TuiDom, after: GridCursor) {
+        let viewport = self.viewport_rows.get() as usize;
         if viewport > 0 && after.scroll() != self.window_start.get() {
+            let rows = self.with(|t| t.row_count());
             let (start, count) = VirtualTable::window_for(viewport as u16, after.scroll(), rows);
-            self.show_window(dom, start, count); // re-applies highlight
+            self.show_window(dom, start, count); // re-applies highlight + selection
         } else {
             self.apply_highlight(dom);
         }
+    }
+
+    /// Apply a navigation move to the cursor, scroll to keep it visible,
+    /// re-materialize the window if it shifted, and update the highlight
+    /// attributes. A plain move collapses any selection range. Returns `true`
+    /// if the cursor actually moved.
+    pub fn navigate(&self, dom: &mut TuiDom, nav: Nav) -> bool {
+        self.nav_active.set(true);
+        let Some((before, after)) = self.move_cursor(nav) else {
+            return false;
+        };
+        self.selection.borrow_mut().collapse_range();
+        self.refresh_after_cursor(dom, after);
         after != before
+    }
+
+    // ── Selection (configurable; off by default) ─────────────────────
+
+    /// Set the selection mode. `SelectionMode::None` (default) disables
+    /// selection entirely; `Cell` selects rectangular cell ranges; `Row`
+    /// selects whole rows. Changing the mode clears any active selection and
+    /// engages the highlight contract.
+    pub fn set_selection_mode(&self, mode: SelectionMode) {
+        self.selection.borrow_mut().set_mode(mode);
+        if mode != SelectionMode::None {
+            self.nav_active.set(true);
+        }
+    }
+
+    /// The current selection mode.
+    pub fn selection_mode(&self) -> SelectionMode {
+        self.selection.borrow().mode()
+    }
+
+    /// A snapshot of the current selection — query it with
+    /// [`GridSelection::is_selected`] / [`is_active`](GridSelection::is_active).
+    pub fn selection(&self) -> GridSelection {
+        self.selection.borrow().clone()
+    }
+
+    /// Extend the selection by moving the cursor (Shift+arrow): the range
+    /// anchors at the pre-move cursor and its head follows. No-op when the
+    /// mode is `None`.
+    pub fn extend_selection(&self, dom: &mut TuiDom, nav: Nav) -> bool {
+        self.nav_active.set(true);
+        let Some((before, after)) = self.move_cursor(nav) else {
+            return false;
+        };
+        self.selection
+            .borrow_mut()
+            .extend((before.row(), before.col()), (after.row(), after.col()));
+        self.refresh_after_cursor(dom, after);
+        after != before
+    }
+
+    /// Toggle the cursor's cell (or row, in `Row` mode) in the selection
+    /// (`Space`).
+    pub fn toggle_selection(&self, dom: &mut TuiDom) {
+        let c = self.cursor.get();
+        self.selection.borrow_mut().toggle(c.row(), c.col());
+        self.apply_highlight(dom);
+    }
+
+    /// Select the whole grid (`Ctrl-A`).
+    pub fn select_all(&self, dom: &mut TuiDom) {
+        self.selection.borrow_mut().select_all();
+        self.apply_highlight(dom);
+    }
+
+    /// Clear the selection (`Esc`).
+    pub fn clear_selection(&self, dom: &mut TuiDom) {
+        self.selection.borrow_mut().clear();
+        self.apply_highlight(dom);
     }
 
     /// Attach a `keydown` listener to `table` that drives [`navigate`] with
@@ -284,8 +359,40 @@ impl VirtualTableView {
             let Some(kbd) = ctx.event.detail.as_keyboard() else {
                 return;
             };
-            if let Some(nav) = nav_for_key(&kbd.key, kbd.modifiers.shift) {
+            let key = kbd.key.as_str();
+            let shift = kbd.modifiers.shift;
+            let ctrl = kbd.modifiers.ctrl || kbd.modifiers.meta;
+            let mut handled = true;
+
+            // Selection keys (only when a selection mode is engaged): Ctrl-A
+            // select-all, Esc clear, Space toggle the cursor cell/row,
+            // Shift+nav extend the range.
+            if view.selection_mode() != SelectionMode::None {
+                if ctrl && key == "a" {
+                    view.select_all(ctx.dom);
+                } else if key == "Escape" {
+                    view.clear_selection(ctx.dom);
+                } else if key == " " {
+                    view.toggle_selection(ctx.dom);
+                } else if shift {
+                    match nav_for_key(key, false) {
+                        Some(nav) => {
+                            view.extend_selection(ctx.dom, nav);
+                        }
+                        None => handled = false,
+                    }
+                } else if let Some(nav) = nav_for_key(key, false) {
+                    view.navigate(ctx.dom, nav);
+                } else {
+                    handled = false;
+                }
+            } else if let Some(nav) = nav_for_key(key, shift) {
                 view.navigate(ctx.dom, nav);
+            } else {
+                handled = false;
+            }
+
+            if handled {
                 ctx.event.prevent_default();
                 ctx.request_redraw();
             }
@@ -295,13 +402,14 @@ impl VirtualTableView {
         self.apply_highlight(dom);
     }
 
-    /// Write `data-active-row` / `data-active-col` / `data-active-cell`
-    /// presence attributes onto the materialized window + header to match the
-    /// cursor. Clears them everywhere they no longer apply, so a single pass
-    /// both sets and unsets.
+    /// Write the cursor (`data-active-row` / `-col` / `-cell`) and selection
+    /// (`data-selected`) presence attributes onto the materialized window +
+    /// header to match the current cursor + selection. Clears them everywhere
+    /// they no longer apply, so a single pass both sets and unsets.
     fn apply_highlight(&self, dom: &mut TuiDom) {
         let cursor = self.cursor.get();
         let start = self.window_start.get();
+        let sel = self.selection.borrow();
 
         for (c, &th) in self.header_cells.borrow().iter().enumerate() {
             set_flag(dom, th, "data-active-col", c == cursor.col());
@@ -310,15 +418,23 @@ impl VirtualTableView {
         let rows = self.mounted_rows.borrow();
         let cells = self.mounted_cells.borrow();
         for (i, &tr) in rows.iter().enumerate() {
-            let row_active = start + i == cursor.row();
+            let vrow = start + i;
+            let row_active = vrow == cursor.row();
             set_flag(dom, tr, "data-active-row", row_active);
+            let mut row_selected = false;
             if let Some(row_cells) = cells.get(i) {
                 for (c, &td) in row_cells.iter().enumerate() {
                     let col_active = c == cursor.col();
                     set_flag(dom, td, "data-active-col", col_active);
                     set_flag(dom, td, "data-active-cell", row_active && col_active);
+                    let selected = sel.is_selected(vrow, c);
+                    set_flag(dom, td, "data-selected", selected);
+                    row_selected |= selected;
                 }
             }
+            // `<tr data-selected>` lets CSS mark a whole selected row (and in
+            // Row mode every cell carries it too, for a full-width fill).
+            set_flag(dom, tr, "data-selected", row_selected);
         }
     }
 
@@ -353,11 +469,16 @@ fn set_flag(dom: &mut TuiDom, id: NodeId, attr: &str, on: bool) {
 /// - `data-active-col` on every `<th>`/`<td>` in the cursor's column,
 /// - `data-active-cell` on the single `<td>` at the cursor.
 ///
-/// The active row and column share one tint (`#181a1c`); the cursor cell uses
-/// the same `#2d2f31` rdom uses elsewhere for focus (inputs, the tree cursor),
-/// so a focused cell reads consistently with the rest of the UI. The cell rule
-/// is listed last so it wins over the column rule on the crossing cell (equal
-/// specificity → source order decides).
+/// It also styles the **selection** ([`set_selection_mode`](VirtualTableView::set_selection_mode)):
+/// - `data-selected` on every selected `<td>` (and the `<tr>` of a row with any
+///   selection), painted a distinct blue (`#1e3a5f`).
+///
+/// The active row and column share one tint (`#181a1c`); selected cells are a
+/// blue fill (`#1e3a5f`); the cursor cell uses the same `#2d2f31` rdom uses
+/// elsewhere for focus (inputs, the tree cursor). Source order sets precedence
+/// (all rules are equal-specificity `:where()`): row/column tint, then
+/// selection, then the cursor cell last — so the cursor stays visible even
+/// inside a selection.
 ///
 /// (As of rdom-tui 0.3.4 the UA focus tint is scoped to interactive controls,
 /// so a focused `<table>` is not washed with the focus background — no
@@ -371,6 +492,8 @@ fn set_flag(dom: &mut TuiDom, id: NodeId, attr: &str, on: bool) {
 pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
     // #181a1c — shared row/column tint.
     let line = Color::Rgb(0x18, 0x1a, 0x1c);
+    // #1e3a5f — selected cells (a distinct blue).
+    let selected = Color::Rgb(0x1e, 0x3a, 0x5f);
     // #2d2f31 — the cursor cell, matching rdom's focus tint (inputs/tree).
     let cell = Color::Rgb(0x2d, 0x2f, 0x31);
     vec![
@@ -385,6 +508,10 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
         (
             ":where(table:focus td[data-active-col])",
             TuiStyle::new().bg(line),
+        ),
+        (
+            ":where(table:focus td[data-selected])",
+            TuiStyle::new().bg(selected),
         ),
         (
             ":where(table:focus td[data-active-cell])",

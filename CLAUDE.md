@@ -22,9 +22,10 @@ substrate (charts live in the separate `rdom-charts` crate; this crate is table-
   must `drop_subtree` the previous window (detach alone leaks arena slots) and re-sync column
   widths. Pure windowing math (`window_for`) stays separate and unit-tested.
 - **Theme-agnostic.** Speak `rdom_tui` types directly; no app-specific theme abstraction.
-- **CSS owns the look; the view owns state.** Interaction state (cursor, and later selection) is
-  reflected onto the DOM as *presence attributes*, never baked colors: `data-active-row` /
-  `data-active-col` / `data-active-cell` for the cursor (selection will add `data-selected`).
+- **CSS owns the look; the view owns state.** Interaction state is reflected onto the DOM as
+  *presence attributes*, never baked colors: `data-active-row` / `data-active-col` /
+  `data-active-cell` for the cursor, and `data-selected` for selection (on selected `<td>`s + the
+  `<tr>` of a selected row).
   Consumers style them with CSS — the crate ships an optional **focus-gated** default
   (`highlight_stylesheet` / `highlight_rules`). The default selectors are wrapped in `:where()` so
   they carry **zero specificity** (requires rdom-tui ≥ 0.3.4): any author rule overrides them with

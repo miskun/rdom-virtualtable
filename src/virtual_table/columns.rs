@@ -71,6 +71,20 @@ impl VirtualTableView {
         self.refresh(dom);
     }
 
+    /// Hide or show the column at `col`. A hidden column gets `data-vt-hidden`
+    /// on its header `<th>` and every body cell (the default sheet maps that to
+    /// `display: none`), the cursor skips it on horizontal navigation, and the
+    /// flag follows the column through reordering. No-op for out-of-range `col`
+    /// at the DOM level (the model still records it).
+    pub fn set_column_hidden(&self, dom: &mut TuiDom, col: usize, hidden: bool) {
+        self.inner.borrow_mut().set_column_hidden(col, hidden);
+        if let Some(&th) = self.header_cells.borrow().get(col) {
+            super::set_flag(dom, th, "data-vt-hidden", hidden);
+        }
+        // Re-materialize so the body cells pick up (or drop) the attribute.
+        self.refresh(dom);
+    }
+
     /// Reflect the model's sort state onto the headers: `data-sort="asc|desc"`
     /// on the sorted `<th>` (the CSS contract), removed from the rest, and a
     /// `▲`/`▼` glyph appended to the sorted header's **text**. Headers persist

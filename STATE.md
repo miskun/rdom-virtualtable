@@ -189,10 +189,27 @@ web's spacer technique + the standard `scrollTop` accessor).
 - Tests: `tests/render_scrollbar.rs` (+4: extent reflects total, decoupled re-window, cursor
   scrolls into range, spacers marked/excluded). `examples/scroll_table.rs` opts in.
 
+## Shipped — column hide/show + module split (M5)
+
+- **Module split** (addressing the M3/M4 architecture-gate finding). `virtual_table.rs` (~1080
+  lines, model + the god-object view) → (1) `model.rs` — the DOM-free `VirtualTable` + `Column` +
+  `SortDir` + sort/reorder/window math + its unit tests; the view reaches it through public
+  accessors, fields stay private; (2) `virtual_table/` directory module with `mod.rs` (core
+  lifecycle + nav + selection + scroll) and a `columns.rs` **child** module (sort / reorder /
+  hide-show / sort-indicator). A child module sees its parent's private fields, so the view's
+  encapsulation is preserved — no `pub(crate)` leak.
+- **Column hide/show** — `VirtualTable::set_column_hidden` / `is_column_hidden` (hidden set, remapped
+  on reorder); `VirtualTableView::set_column_hidden(dom, col, hidden)` stamps **`data-vt-hidden`** on
+  the column's header + cells (default sheet → `display: none`, zero-specificity/overridable), the
+  cursor **skips hidden columns** on horizontal nav, and the flag follows a reorder. Attribute+CSS
+  (not inline `display:none`) so header column widths aren't clobbered.
+- Tests: +2 model (set/query, follows reorder) and +2 render (`render_sort.rs`: marked + not painted
+  + un-hides; cursor skips). `examples/scroll_table.rs`: **`x`** toggles-hide the cursor's column.
+
 ## Roadmap (not yet done)
 
-- **Column ops (remaining):** column *hide/show* (consumer-side, like reorder). Column *resize*
-  needs custom layout → an rdom substrate ask.
+- **Column ops (remaining):** column *resize* needs custom layout → an rdom substrate ask.
+  (Sort + reorder + hide/show shipped.)
 - **Substrate-friction backlog (promote to rdom when hit):**
   - `table::size_columns` ignores generated `::before`/`::after` content width and runs pre-cascade —
     so a CSS `::after` sort glyph is clipped (we render the glyph as header text instead). Once it

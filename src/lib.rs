@@ -84,6 +84,10 @@
 //! [`VirtualTableView::move_column`] moves a column, permuting the header and
 //! every row's cell; the cursor and the sort indicator follow the moved
 //! column. Like sort, it clears the selection.
+//! [`VirtualTableView::set_column_hidden`] hides/shows a column — it gets
+//! `data-vt-hidden` (the default sheet maps that to `display: none`) on its
+//! header + cells, the cursor skips it on horizontal navigation, and the hidden
+//! flag follows the column through reordering.
 //!
 //! ## Native scrollbar (opt-in)
 //!

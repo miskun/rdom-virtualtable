@@ -7,7 +7,7 @@ use rdom_tui::render::{Buffer, LayoutExt, PaintExt, Rect};
 use rdom_tui::style::{CascadeExt, Stylesheet};
 use rdom_tui::{NodeId, TuiDom};
 use rdom_virtualtable::{
-    Column, SelectionMode, SortDir, VirtualTable, VirtualTableView, highlight_stylesheet,
+    Column, Nav, SelectionMode, SortDir, VirtualTable, VirtualTableView, highlight_stylesheet,
 };
 
 fn view_with(rows: &[&[&str]], cols: usize) -> VirtualTableView {
@@ -257,4 +257,62 @@ fn sort_glyphs_are_configurable() {
         has_symbol(&mut dom, &sheet, vp, "v"),
         "custom descending glyph"
     );
+}
+
+/// Cascade + layout + paint, then return the painted buffer as joined text.
+fn buffer_text(dom: &mut TuiDom, sheet: &Stylesheet, vp: Rect) -> String {
+    dom.cascade(sheet);
+    dom.layout_dom(vp);
+    let mut buf = Buffer::empty(vp);
+    dom.paint_dom(&mut buf, vp);
+    let mut s = String::new();
+    for y in vp.y..vp.bottom() {
+        for x in vp.x..vp.right() {
+            s.push_str(buf.cell(x, y).map(|c| c.symbol()).unwrap_or(" "));
+        }
+        s.push('\n');
+    }
+    s
+}
+
+#[test]
+fn hidden_column_is_marked_and_not_painted() {
+    let view = view_with(&[&["A", "MID", "C"]], 3);
+    let mut dom = TuiDom::new();
+    let table = mounted(&view, &mut dom, 8);
+
+    view.set_column_hidden(&mut dom, 1, true); // hide the middle column
+    assert!(
+        dom.has_attribute(header_ids(&dom, table)[1], "data-vt-hidden"),
+        "the hidden column's header is marked"
+    );
+
+    let txt = buffer_text(&mut dom, &highlight_stylesheet(), Rect::new(0, 0, 40, 12));
+    assert!(
+        !txt.contains("MID"),
+        "the hidden column's cell is not painted"
+    );
+    assert!(
+        txt.contains('A') && txt.contains('C'),
+        "visible columns still paint"
+    );
+
+    // Showing it again brings it back.
+    view.set_column_hidden(&mut dom, 1, false);
+    let txt = buffer_text(&mut dom, &highlight_stylesheet(), Rect::new(0, 0, 40, 12));
+    assert!(txt.contains("MID"), "un-hidden column paints again");
+}
+
+#[test]
+fn cursor_skips_a_hidden_column() {
+    let view = view_with(&[&["a", "b", "c"]], 3);
+    let mut dom = TuiDom::new();
+    let _table = mounted(&view, &mut dom, 8);
+    view.set_column_hidden(&mut dom, 1, true); // hide the middle column
+
+    assert_eq!(view.cursor().col(), 0);
+    view.navigate(&mut dom, Nav::Right); // 0 → skip hidden 1 → land on 2
+    assert_eq!(view.cursor().col(), 2, "Right skips the hidden column");
+    view.navigate(&mut dom, Nav::Left); // 2 → skip 1 → 0
+    assert_eq!(view.cursor().col(), 0, "Left skips it too");
 }

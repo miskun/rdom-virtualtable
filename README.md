@@ -128,6 +128,10 @@ view.move_column(dom, 0, 2); // move column 0 to index 2
 `move_column` permutes the header and every row's cell, the cursor follows its column, and the sort
 indicator stays on the moved column. (Like sort, it clears the selection.)
 
+`set_column_hidden(dom, col, hidden)` hides/shows a column — it gets `data-vt-hidden` (the default
+sheet maps that to `display: none`) on its header + cells, the cursor skips it on horizontal
+navigation, and the hidden flag follows the column through reordering.
+
 ## Scrollbar
 
 ```rust,ignore
@@ -161,11 +165,12 @@ Shipped:
   Ctrl-A / Esc; `data-selected` CSS contract + query API.
 - **Sort** — `sort` / `toggle_sort` with a numeric-aware default comparator and a custom-comparator
   hook; `data-sort` header contract + a ▲/▼ glyph.
-- **Column reorder** — `move_column`; cursor + sort indicator follow the moved column.
+- **Column reorder + hide/show** — `move_column` and `set_column_hidden`; cursor + sort indicator
+  follow, cursor skips hidden columns.
 - **Native scrollbar** — opt-in `enable_scrollbar`; proportional thumb (spacer rows), decoupled
   wheel/drag, cursor-follows-on-nav. Horizontal scroll via a `Row`-flex `overflow-x` wrapper.
 
-Planned: column hide/show + resize; side-loaded data sources; persistence. See `STATE.md`.
+Planned: column resize; side-loaded data sources; persistence. See `STATE.md`.
 
 ## License
 

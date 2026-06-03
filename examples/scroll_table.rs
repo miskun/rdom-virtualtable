@@ -45,7 +45,7 @@ fn flex_col() -> TuiStyle {
 fn title_str(row: usize, col: usize) -> String {
     format!(
         "row {row} · col {col} / {ROWS}  ·  ↑↓←→ move · Shift+↑↓←→ select · Space toggle · \
-         s sort · [ ] move col · Ctrl-A all · Esc clear · Ctrl-C quit",
+         s sort · [ ] move col · x hide col · Ctrl-A all · Esc clear · Ctrl-C quit",
     )
 }
 
@@ -122,6 +122,10 @@ fn main() -> io::Result<()> {
             "s" => vs.toggle_sort(ctx.dom, col),
             "[" if col > 0 => vs.move_column(ctx.dom, col, col - 1),
             "]" if col + 1 < cols => vs.move_column(ctx.dom, col, col + 1),
+            "x" => {
+                let hidden = vs.with(|t| t.is_column_hidden(col));
+                vs.set_column_hidden(ctx.dom, col, !hidden);
+            }
             _ => return,
         }
         ctx.request_redraw();

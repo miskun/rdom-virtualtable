@@ -24,8 +24,8 @@ use std::rc::Rc;
 
 use rdom_tui::runtime::builtins::table::size_columns;
 use rdom_tui::{
-    Color, ListenerOptions, NodeId, Overflow, Size, Stylesheet, TuiAccessors, TuiAccessorsMut,
-    TuiDom, TuiNodeMutExt, TuiStyle,
+    Color, Display, ListenerOptions, NodeId, Overflow, Size, Stylesheet, TuiAccessors,
+    TuiAccessorsMut, TuiDom, TuiNodeMutExt, TuiStyle, Value,
 };
 
 use crate::grid_cursor::{GridCursor, Nav, nav_for_key};
@@ -172,6 +172,9 @@ impl VirtualTableView {
                 let cell = row.get(c).map(String::as_str).unwrap_or("");
                 let text = dom.create_text_node(cell);
                 dom.append_child(td, text).unwrap();
+                if model.is_column_hidden(c) {
+                    set_flag(dom, td, "data-vt-hidden", true);
+                }
                 dom.append_child(tr, td).unwrap();
                 row_cells.push(td);
             }
@@ -292,9 +295,25 @@ impl VirtualTableView {
         }
         let viewport = self.viewport_rows.get() as usize;
         let before = self.cursor.get();
-        let after = before
+        let mut after = before
             .navigate(nav, rows, cols, viewport.max(1))
             .follow(viewport, rows);
+        // Skip hidden columns on a horizontal move: keep scanning in the move
+        // direction for a visible column; if none exists that way, stay put.
+        if after.col() != before.col() && self.inner.borrow().is_column_hidden(after.col()) {
+            let dir: isize = if after.col() > before.col() { 1 } else { -1 };
+            let model = self.inner.borrow();
+            let mut c = after.col() as isize;
+            while c >= 0 && (c as usize) < cols && model.is_column_hidden(c as usize) {
+                c += dir;
+            }
+            drop(model);
+            after = if c >= 0 && (c as usize) < cols {
+                after.at(after.row(), c as usize, rows, cols)
+            } else {
+                before
+            };
+        }
         self.cursor.set(after);
         Some((before, after))
     }
@@ -635,6 +654,14 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
             ":where(table:focus-within tbody)::scrollbar-thumb",
             TuiStyle::new().fg(Color::Rgb(30, 144, 255)),
         ),
+        // Hidden columns: the view stamps `data-vt-hidden` on a hidden column's
+        // header + cells; this maps it to `display: none`. Zero-specificity, so
+        // a consumer can override (e.g. render hidden columns collapsed instead).
+        (":where([data-vt-hidden])", {
+            let mut s = TuiStyle::new();
+            s.display = Some(Value::Specified(Display::None));
+            s
+        }),
     ]
 }
 

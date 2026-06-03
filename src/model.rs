@@ -4,6 +4,8 @@
 //! logic — it's the unit-tested core that [`VirtualTableView`](crate::VirtualTableView)
 //! materializes a window of into a `<table>` subtree.
 
+use std::collections::HashSet;
+
 /// A table column: a header label and an optional fixed width (otherwise
 /// the column auto-sizes to its widest cell).
 #[derive(Clone, Debug)]
@@ -64,6 +66,8 @@ pub struct VirtualTable {
     rows: Vec<Vec<String>>,
     /// Current sort `(column, direction)`, or `None` if unsorted.
     sort: Option<(usize, SortDir)>,
+    /// Column indices currently hidden from display.
+    hidden: HashSet<usize>,
 }
 
 impl VirtualTable {
@@ -72,6 +76,7 @@ impl VirtualTable {
             columns,
             rows: Vec::new(),
             sort: None,
+            hidden: HashSet::new(),
         }
     }
 
@@ -103,6 +108,22 @@ impl VirtualTable {
     /// Current sort `(column, direction)`, or `None` if unsorted.
     pub fn sort_state(&self) -> Option<(usize, SortDir)> {
         self.sort
+    }
+
+    /// Hide or show the column at index `col` (no-op for out-of-range `col`,
+    /// but the index is still tracked so a later `set_rows`/reorder is
+    /// consistent). Reflected by the view as a `display: none` cell attribute.
+    pub fn set_column_hidden(&mut self, col: usize, hidden: bool) {
+        if hidden {
+            self.hidden.insert(col);
+        } else {
+            self.hidden.remove(&col);
+        }
+    }
+
+    /// Whether the column at `col` is currently hidden.
+    pub fn is_column_hidden(&self, col: usize) -> bool {
+        self.hidden.contains(&col)
     }
 
     /// Sort the rows by `col` using the [`default_cell_cmp`] comparator
@@ -152,6 +173,13 @@ impl VirtualTable {
         }
         if let Some((c, dir)) = self.sort {
             self.sort = Some((Self::remapped_index(from, to, c), dir));
+        }
+        if !self.hidden.is_empty() {
+            self.hidden = self
+                .hidden
+                .iter()
+                .map(|&c| Self::remapped_index(from, to, c))
+                .collect();
         }
     }
 
@@ -328,5 +356,24 @@ mod tests {
         assert_eq!(VirtualTable::remapped_index(2, 0, 0), 1);
         assert_eq!(VirtualTable::remapped_index(2, 0, 1), 2);
         assert_eq!(VirtualTable::remapped_index(2, 0, 3), 3);
+    }
+
+    #[test]
+    fn hidden_columns_set_and_query() {
+        let mut t = VirtualTable::new(vec![Column::new("a"), Column::new("b")]);
+        assert!(!t.is_column_hidden(1));
+        t.set_column_hidden(1, true);
+        assert!(t.is_column_hidden(1));
+        t.set_column_hidden(1, false);
+        assert!(!t.is_column_hidden(1));
+    }
+
+    #[test]
+    fn hidden_columns_follow_a_reorder() {
+        let mut t = VirtualTable::new(vec![Column::new("a"), Column::new("b"), Column::new("c")]);
+        t.set_column_hidden(0, true); // hide column a (index 0)
+        t.move_column(0, 2); // a → index 2, so its hidden flag follows
+        assert!(t.is_column_hidden(2), "hidden index follows its column");
+        assert!(!t.is_column_hidden(0));
     }
 }

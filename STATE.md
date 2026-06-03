@@ -160,22 +160,43 @@ Model-side sort + a CSS-contract header indicator, consumer-first.
   clears selection, glyph paints). **Total: 57 (33 unit + 23 integration + 1 doctest).**
 - `examples/scroll_table.rs`: press **`s`** to sort the cursor's column (toggles asc⇄desc).
 
+## Shipped — native vertical scrollbar (M4)
+
+Opt-in (`enable_scrollbar`), built entirely on the existing rdom-tui scroll substrate — **no new
+substrate API** (the grumpy-architect call: reject a "declared virtual scroll extent"; use the
+web's spacer technique + the standard `scrollTop` accessor).
+
+- `VirtualTableView::enable_scrollbar(dom)` — makes the `<tbody>` a vertical `overflow-y: auto`
+  scroll container `viewport_rows` tall, and `show_window` brackets the window with spacer `<tr>`s
+  (`data-rdom-spacer`, height-only, marked so consumer CSS + the highlight pass skip them) so the
+  `<tbody>` scroll extent equals the **total** row count → the thumb is proportional while only the
+  window is materialized.
+- **Decoupled (spreadsheet-style):** a `scroll` listener re-windows on wheel/drag without touching
+  the cursor; cursor navigation writes `scroll_top` (one write direction, no re-entrancy guard) so
+  the listener re-windows + the cursor scrolls back into view. `first_row = scroll_top` (the
+  `<thead>` is outside the scroll container — no sticky, so header/body columns stay aligned).
+- **Assumes uniform single-cell rows**; the draggable thumb spans the first ~65k rows (`u16` spacer
+  height), keyboard nav reaches the rest. Sticky-header was abandoned: the consumer can't set
+  `position: sticky; top: 0` via the public `TuiStyle` (`Length` unexported, no `top()` builder) —
+  the tbody-scroll design sidesteps it (prototype-validated before building).
+- **Horizontal scroll** of a wide table: wrap it in a `Row`-flex `overflow-x` container (the web
+  `<div overflow-x:auto>` pattern); a `<table>` can't be its own cross-axis scroll container
+  (rdom `SCROLL-CROSS-AXIS-1`). No component code needed.
+- Tests: `tests/render_scrollbar.rs` (+4: extent reflects total, decoupled re-window, cursor
+  scrolls into range, spacers marked/excluded). `examples/scroll_table.rs` opts in.
+
 ## Roadmap (not yet done)
 
-- **M3 — column ops (remaining):** column *hide/show* (consumer-side, like reorder). Column *resize*
-  needs custom layout → flag as an rdom substrate ask. (Sort + reorder shipped above.)
+- **Column ops (remaining):** column *hide/show* (consumer-side, like reorder). Column *resize*
+  needs custom layout → an rdom substrate ask.
 - **Substrate-friction backlog (promote to rdom when hit):**
   - `table::size_columns` ignores generated `::before`/`::after` content width and runs pre-cascade —
-    so a CSS `::after` sort glyph is clipped. Once it measures pseudo width (post-cascade), move the
-    sort glyph from header text to the cleaner `th[data-sort]::after` default rule.
-  - `table::size_columns` rewrites cell widths via `inline_style` **without marking them
-    `style_dirty`/`layout_dirty`**, so the runtime's incremental subtree-cascade can read a stale
-    width for cells outside the dirtied subtree (e.g. headers after a body rebuild). We work around
-    it with the `data-vt-rev` whole-table re-cascade bump; the root-cause fix is for `size_columns`
-    to dirty the cells it resizes.
-  - scrollbar spacer reflecting the *total* row count, horizontal scroll, column resize-by-width —
-    each needs custom layout/paint a downstream crate can't do; document and prioritize as focused
-    rdom enhancements.
+    so a CSS `::after` sort glyph is clipped (we render the glyph as header text instead). Once it
+    measures pseudo width post-cascade, move the glyph to a `th[data-sort]::after` default rule.
+  - **`TABLE-COLSYNC-DIRTY-1` — RESOLVED in rdom-tui 0.3.5.** `size_columns` now stamps a
+    column-width signature so resized cells re-cascade; the `data-vt-rev` hack was removed.
+  - **Scrollbar spacer (total-row extent) + horizontal scroll — DONE** (above) on the existing scroll
+    substrate, no new rdom API. Column *resize-by-width* still needs custom layout → substrate ask.
 - Side-loaded data sources; persistence callbacks (sort/order/widths/hidden).
 
 ## Review gates
@@ -222,3 +243,32 @@ Run the Grumpy Chief Architect + Product/API passes at each milestone; record fi
     `Column.header` stays clean. Acceptable; resolves once the glyph moves to `::after`.
   - No blocking findings. M2 (selection) was not formally gated — its contract is covered by tests
     and the M3 review touched its sort/reorder interactions.
+
+### M4 gate — native vertical scrollbar
+
+Review was **front-loaded**: a grumpy critique of the *plan* (recorded in the chat decision log)
+caught the worst issues before any feature code, and a gating prototype validated the design.
+
+- **Architect:** The plan's blocking findings were all addressed before building:
+  - *Two-sources-of-truth (would-be blocker) — resolved.* In scroll-mode `scroll_top` is the single
+    source; `window_start` derives from it; the cursor's `scroll` field is only its private follow
+    input (synced to `scroll_top` on cursor move, allowed to diverge on wheel — that *is* decoupling).
+  - *Re-entrancy (would-be blocker) — designed out.* One write direction: the `scroll` listener
+    re-windows but never writes `scroll_top`; only cursor nav writes it. No guard needed.
+  - *Sticky-header design (planned) — abandoned after prototyping.* The consumer can't set
+    `position: sticky; top: 0` via the public `TuiStyle` (`Length` unexported, no `top()` builder) —
+    a real substrate gap the prototype surfaced. Pivoted to tbody-as-scroll-container (thead static
+    outside), which needs no sticky AND keeps header/body aligned (auto-overflow reserves no gutter).
+    Prototyping the actual variant (not the assumed one) is what caught this.
+  - *Forced height (non-blocking).* `enable_scrollbar` fixes the `<tbody>` height to `viewport_rows`
+    (the scroll viewport) rather than the whole table — more defensible than the planned table-height
+    force, but still a fixed height; flex-fill (read the laid-out height) is the future end-state.
+  - *Uniform 1-cell rows + `u16` spacer (~65k)* — documented limits, not silent. Keyboard nav
+    (unbounded) covers beyond 65k; wrapped rows break the mapping (documented).
+- **API:** `enable_scrollbar(dom)` is one opt-in call; decoupled wheel/drag + cursor-follows-on-nav
+  matches spreadsheet expectations. No new rdom substrate API (spacer technique + standard
+  `scroll_top`) — the grumpy-architect call against a "declared virtual scroll extent" held up.
+  Spacers are marked (`data-rdom-spacer`) so they never carry highlight/selection or catch consumer
+  `tr` styles. Gate clean (fmt / clippy -D warnings / all suites + 4 new scrollbar tests).
+  - *Non-blocking — `VirtualTableView` keeps growing* (now + scroll). The hide/resize work should
+    finally split a module (carried from the M3 gate).

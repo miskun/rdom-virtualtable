@@ -128,6 +128,26 @@ view.move_column(dom, 0, 2); // move column 0 to index 2
 `move_column` permutes the header and every row's cell, the cursor follows its column, and the sort
 indicator stays on the moved column. (Like sort, it clears the selection.)
 
+## Scrollbar
+
+```rust,ignore
+# use rdom_virtualtable::VirtualTableView;
+# use rdom_tui::TuiDom;
+# fn demo(view: &VirtualTableView, dom: &mut TuiDom) {
+view.set_viewport_rows(14);
+view.enable_scrollbar(dom);  // native vertical scrollbar, thumb reflects ALL rows
+# }
+```
+
+`enable_scrollbar` makes the `<tbody>` a vertical scroll container and brackets the window with
+spacer rows, so the scroll thumb is proportional to the **total** row count while only the visible
+window is materialized. Wheel / drag scroll is **decoupled** from the cursor (spreadsheet-style);
+keyboard navigation scrolls the view to keep the cursor visible. Assumes uniform single-cell rows;
+the draggable thumb spans the first ~65k rows (keyboard nav reaches the rest).
+
+For **horizontal** scroll of a wide table, wrap it in a `Row`-flex `overflow-x: auto` container (the
+TUI analogue of `<div style="overflow-x:auto"><table>`); header and body scroll together.
+
 ## Status
 
 Shipped:
@@ -142,9 +162,10 @@ Shipped:
 - **Sort** — `sort` / `toggle_sort` with a numeric-aware default comparator and a custom-comparator
   hook; `data-sort` header contract + a ▲/▼ glyph.
 - **Column reorder** — `move_column`; cursor + sort indicator follow the moved column.
+- **Native scrollbar** — opt-in `enable_scrollbar`; proportional thumb (spacer rows), decoupled
+  wheel/drag, cursor-follows-on-nav. Horizontal scroll via a `Row`-flex `overflow-x` wrapper.
 
-Planned: column hide/show + resize; a scrollbar spacer; side-loaded data sources; persistence. See
-`STATE.md`.
+Planned: column hide/show + resize; side-loaded data sources; persistence. See `STATE.md`.
 
 ## License
 

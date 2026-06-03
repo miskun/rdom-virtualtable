@@ -84,6 +84,18 @@
 //! [`VirtualTableView::move_column`] moves a column, permuting the header and
 //! every row's cell; the cursor and the sort indicator follow the moved
 //! column. Like sort, it clears the selection.
+//!
+//! ## Native scrollbar (opt-in)
+//!
+//! [`VirtualTableView::enable_scrollbar`] turns the `<tbody>` into a vertical
+//! scroll container and brackets the row window with spacer `<tr>`s, so the
+//! scroll thumb reflects the **total** row count while only the window is
+//! materialized. Wheel / drag re-window **decoupled** from the cursor
+//! (spreadsheet-style); keyboard navigation scrolls the view to keep the
+//! cursor visible. Assumes uniform single-cell rows; the draggable thumb spans
+//! the first ~65k rows (keyboard nav reaches the rest). For **horizontal**
+//! scroll of a wide table, wrap it in a `Row`-flex `overflow-x` container (a
+//! `<table>` can't be its own cross-axis scroll container).
 
 mod grid_cursor;
 mod selection;

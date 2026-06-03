@@ -12,17 +12,21 @@
 //! display; recompute the slice from a scroll offset with
 //! [`VirtualTable::window_for`].
 //!
-//! **Not yet wired (see `STATE.md`):** automatic scroll → window
-//! recomputation and a spacer so the scrollbar reflects the *total* row
-//! count. For now the consumer drives `show_window` explicitly (e.g.
-//! from a `scroll` listener), which is enough to avoid building the full
-//! dataset.
+//! **Native scrollbar (opt-in):**
+//! [`enable_scrollbar`](VirtualTableView::enable_scrollbar) makes the
+//! `<tbody>` a vertical scroll container and brackets the window with
+//! spacer rows so the scroll thumb reflects the *total* row count; a
+//! `scroll` listener re-windows on wheel/drag. Without it, the consumer
+//! drives [`show_window`](VirtualTableView::show_window) explicitly.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use rdom_tui::runtime::builtins::table::size_columns;
-use rdom_tui::{Color, ListenerOptions, NodeId, Size, Stylesheet, TuiDom, TuiNodeMutExt, TuiStyle};
+use rdom_tui::{
+    Color, ListenerOptions, NodeId, Overflow, Size, Stylesheet, TuiAccessors, TuiAccessorsMut,
+    TuiDom, TuiNodeMutExt, TuiStyle,
+};
 
 use crate::grid_cursor::{GridCursor, Nav, nav_for_key};
 use crate::selection::{GridSelection, SelectionMode};
@@ -236,6 +240,13 @@ pub struct VirtualTableView {
     /// glyphs double-width shifts later header columns by one — set narrow
     /// glyphs (`" ^"` / `" v"`, `" ↑"` / `" ↓"`) or `""` to avoid it.
     sort_glyphs: Rc<RefCell<(String, String)>>,
+    /// Whether the native vertical scrollbar is engaged (`enable_scrollbar`).
+    /// When set, `show_window` brackets the row window with spacer `<tr>`s so
+    /// the `<tbody>`'s scroll extent reflects the *total* row count.
+    scroll_mode: Rc<Cell<bool>>,
+    /// The spacer `<tr>` ids (top + bottom) currently in `<tbody>`, dropped
+    /// alongside the row window on the next `show_window`.
+    spacers: Rc<RefCell<Vec<NodeId>>>,
 }
 
 impl VirtualTableView {
@@ -253,6 +264,8 @@ impl VirtualTableView {
             window_start: Rc::new(Cell::new(0)),
             nav_active: Rc::new(Cell::new(false)),
             sort_glyphs: Rc::new(RefCell::new((" \u{25B2}".into(), " \u{25BC}".into()))),
+            scroll_mode: Rc::new(Cell::new(false)),
+            spacers: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -297,15 +310,30 @@ impl VirtualTableView {
             return;
         };
 
-        // Drop the previous window's rows (frees the arena slots).
+        // Drop the previous window's rows + spacers (frees the arena slots).
         for id in self.mounted_rows.borrow_mut().drain(..) {
+            let _ = dom.drop_subtree(id);
+        }
+        for id in self.spacers.borrow_mut().drain(..) {
             let _ = dom.drop_subtree(id);
         }
         self.mounted_cells.borrow_mut().clear();
 
+        let total = self.inner.borrow().rows.len();
+        let end = (start + count).min(total);
+
+        // Native-scrollbar mode: a top spacer of `start` rows makes the window
+        // sit at the right scroll offset, and top + window + bottom = total, so
+        // the `<tbody>` scroll extent reflects the whole dataset (proportional
+        // thumb) while only the window is materialized.
+        if self.scroll_mode.get() && start > 0 {
+            let sp = self.make_spacer(dom, start);
+            dom.append_child(tbody, sp).unwrap();
+            self.spacers.borrow_mut().push(sp);
+        }
+
         let model = self.inner.borrow();
         let ncols = model.columns.len();
-        let end = (start + count).min(model.rows.len());
         let span = end.saturating_sub(start);
         let mut mounted = Vec::with_capacity(span);
         let mut mounted_cells = Vec::with_capacity(span);
@@ -325,6 +353,13 @@ impl VirtualTableView {
             mounted_cells.push(row_cells);
         }
         drop(model);
+
+        // Bottom spacer for the rows below the window (see top spacer above).
+        if self.scroll_mode.get() && end < total {
+            let sp = self.make_spacer(dom, total - end);
+            dom.append_child(tbody, sp).unwrap();
+            self.spacers.borrow_mut().push(sp);
+        }
 
         *self.mounted_rows.borrow_mut() = mounted;
         *self.mounted_cells.borrow_mut() = mounted_cells;
@@ -355,6 +390,64 @@ impl VirtualTableView {
         self.nav_active.set(true);
     }
 
+    /// Build a spacer `<tr>` of `rows` cells tall, marked so consumer CSS and
+    /// the highlight pass skip it. Height is `u16`-bounded (~65k rows) — see
+    /// [`enable_scrollbar`](Self::enable_scrollbar) for the implication.
+    fn make_spacer(&self, dom: &mut TuiDom, rows: usize) -> NodeId {
+        let h = rows.min(u16::MAX as usize) as u16;
+        let tr = dom.create_element("tr");
+        dom.node_mut(tr)
+            .set_inline_style(TuiStyle::new().height(Size::Fixed(h)));
+        let _ = dom.set_attribute(tr, "data-rdom-spacer", "");
+        tr
+    }
+
+    /// Engage the **native vertical scrollbar**: the `<tbody>` becomes a
+    /// `overflow-y: auto` scroll container `viewport_rows` tall, the window is
+    /// bracketed with spacer `<tr>`s so the scroll thumb reflects the *total*
+    /// row count, and a `scroll` listener re-windows as the user wheels / drags
+    /// (decoupled — scrolling moves the viewport, not the cursor; the cursor
+    /// scrolls back into view only when [`navigate`](Self::navigate)d). Call
+    /// after [`set_viewport_rows`](Self::set_viewport_rows) /
+    /// [`install_nav`](Self::install_nav) and after the first
+    /// [`show_window`](Self::show_window). The `<thead>` stays put (it's outside
+    /// the scroll container — no sticky needed) so header and body columns stay
+    /// aligned.
+    ///
+    /// **Assumes uniform single-cell rows** (the spacer/offset math is in row
+    /// units = cells); wrapped or multi-line cells break the scroll mapping.
+    /// The spacer height is `u16`-bounded, so the draggable thumb spans the
+    /// first ~65k rows; beyond that, keyboard navigation (unbounded) still
+    /// reaches every row.
+    pub fn enable_scrollbar(&self, dom: &mut TuiDom) {
+        let Some(tbody) = self.tbody.get() else {
+            return;
+        };
+        let vp = self.viewport_rows.get();
+        dom.node_mut(tbody).set_inline_style(
+            TuiStyle::new()
+                .overflow_y(Overflow::Auto)
+                .height(Size::Fixed(vp)),
+        );
+        self.scroll_mode.set(true);
+
+        // Decoupled scroll: on wheel/drag, re-window to the new offset; the
+        // cursor is left untouched. The listener NEVER writes scroll_top, so
+        // there's no re-entrancy with the cursor path (which DOES write it).
+        let view = self.clone();
+        dom.add_event_listener(tbody, "scroll", ListenerOptions::default(), move |ctx| {
+            let top = ctx.dom.node(tbody).scroll_top().unwrap_or(0).max(0) as usize;
+            if top != view.window_start.get() {
+                view.show_window(ctx.dom, top, view.viewport_rows.get() as usize);
+                ctx.request_redraw();
+            }
+        })
+        .expect("tbody accepts a scroll listener");
+
+        // Re-materialize the current window so the spacers appear.
+        self.show_window(dom, self.window_start.get(), vp as usize);
+    }
+
     /// The current logical cursor (active `(row, col)` + scroll offset).
     /// Useful for acting on the focused row (e.g. an `Enter` handler).
     pub fn cursor(&self) -> GridCursor {
@@ -382,6 +475,20 @@ impl VirtualTableView {
     /// Re-materialize the window if the cursor scrolled it, else just re-apply
     /// the highlight + selection attributes.
     fn refresh_after_cursor(&self, dom: &mut TuiDom, after: GridCursor) {
+        // Native-scrollbar mode: a single write direction — move the scrollbar
+        // to keep the cursor visible and let the `scroll` listener re-window +
+        // re-highlight. If the cursor stayed within the current window (no
+        // scroll change) the listener won't fire, so re-highlight here.
+        if self.scroll_mode.get() {
+            let scrolled = after.scroll() != self.window_start.get();
+            if let Some(tbody) = self.tbody.get() {
+                let _ = dom.node_mut(tbody).set_scroll_top(after.scroll() as i32);
+            }
+            if !scrolled {
+                self.apply_highlight(dom);
+            }
+            return;
+        }
         let viewport = self.viewport_rows.get() as usize;
         if viewport > 0 && after.scroll() != self.window_start.get() {
             let rows = self.with(|t| t.row_count());

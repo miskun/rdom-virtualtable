@@ -98,6 +98,10 @@ fn main() -> io::Result<()> {
     // the cursor highlight from here on).
     view.show_window(&mut dom, 0, VISIBLE as usize);
     view.install_nav(&mut dom, table, VISIBLE);
+    // Native vertical scrollbar: the <tbody> scrolls, the thumb reflects all
+    // 500 rows (spacer rows), and the mouse wheel / drag scrolls decoupled from
+    // the cursor. Keyboard nav still scrolls the view to keep the cursor visible.
+    view.enable_scrollbar(&mut dom);
     // Opt into cell selection — Shift+arrows extend a rectangle, Space toggles,
     // Ctrl-A selects all, Esc clears. (Try `SelectionMode::Row` for whole-row
     // selection, or leave it `None` to disable.)

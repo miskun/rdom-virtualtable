@@ -1,0 +1,164 @@
+//! Sort contract at the DOM/paint level: sorting reorders the materialized
+//! window, marks the sorted header with `data-sort="asc|desc"` and a ▲/▼ glyph
+//! in the header text, and clears the selection (it's row-index-keyed, so it's
+//! meaningless after a reorder).
+
+use rdom_tui::render::{Buffer, LayoutExt, PaintExt, Rect};
+use rdom_tui::style::{CascadeExt, Stylesheet};
+use rdom_tui::{NodeId, TuiDom};
+use rdom_virtualtable::{
+    Column, SelectionMode, SortDir, VirtualTable, VirtualTableView, highlight_stylesheet,
+};
+
+fn view_with(rows: &[&[&str]], cols: usize) -> VirtualTableView {
+    let columns = (0..cols).map(|c| Column::new(format!("c{c}"))).collect();
+    let mut model = VirtualTable::new(columns);
+    model.set_rows(
+        rows.iter()
+            .map(|r| r.iter().map(|s| s.to_string()).collect())
+            .collect(),
+    );
+    VirtualTableView::new(model)
+}
+
+fn mounted(view: &VirtualTableView, dom: &mut TuiDom, visible: usize) -> NodeId {
+    let root = dom.root();
+    let table = view.mount(dom);
+    dom.append_child(root, table).unwrap();
+    dom.node_mut(table).set_attribute("tabindex", "0").ok();
+    view.set_viewport_rows(visible as u16);
+    view.show_window(dom, 0, visible);
+    table
+}
+
+/// The first `<td>` text of each `<tr>` under `<tbody>`, in DOM order.
+fn col0_text(dom: &TuiDom, table: NodeId) -> Vec<String> {
+    let mut out = Vec::new();
+    for child in dom.node(table).children() {
+        if child.node_name() == "tbody" {
+            for tr in child.children().filter(|c| c.node_name() == "tr") {
+                if let Some(td) = tr.children().find(|c| c.node_name() == "td") {
+                    out.push(td.text_content());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `<th>` node ids in column order.
+fn header_ids(dom: &TuiDom, table: NodeId) -> Vec<NodeId> {
+    for child in dom.node(table).children() {
+        if child.node_name() == "thead" {
+            for tr in child.children() {
+                if tr.node_name() == "tr" {
+                    return tr
+                        .children()
+                        .filter(|c| c.node_name() == "th")
+                        .map(|c| c.id())
+                        .collect();
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
+/// Cascade + layout + paint, then test whether any cell renders `sym`.
+fn has_symbol(dom: &mut TuiDom, sheet: &Stylesheet, viewport: Rect, sym: &str) -> bool {
+    dom.cascade(sheet);
+    dom.layout_dom(viewport);
+    let mut buf = Buffer::empty(viewport);
+    dom.paint_dom(&mut buf, viewport);
+    for y in viewport.y..viewport.bottom() {
+        for x in viewport.x..viewport.right() {
+            if let Some(c) = buf.cell(x, y) {
+                if c.symbol() == sym {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+#[test]
+fn sort_reorders_the_materialized_window() {
+    let view = view_with(&[&["banana"], &["apple"], &["cherry"]], 1);
+    let mut dom = TuiDom::new();
+    let table = mounted(&view, &mut dom, 8);
+    assert_eq!(col0_text(&dom, table), ["banana", "apple", "cherry"]);
+
+    view.sort(&mut dom, 0, SortDir::Ascending);
+    assert_eq!(col0_text(&dom, table), ["apple", "banana", "cherry"]);
+
+    view.sort(&mut dom, 0, SortDir::Descending);
+    assert_eq!(col0_text(&dom, table), ["cherry", "banana", "apple"]);
+}
+
+#[test]
+fn sort_marks_the_header_and_toggles_direction_and_column() {
+    let view = view_with(&[&["b", "x"], &["a", "y"]], 2);
+    let mut dom = TuiDom::new();
+    let table = mounted(&view, &mut dom, 8);
+    let hs = header_ids(&dom, table);
+
+    view.sort(&mut dom, 1, SortDir::Ascending);
+    assert_eq!(dom.get_attribute(hs[1], "data-sort"), Some("asc"));
+    assert_eq!(
+        dom.get_attribute(hs[0], "data-sort"),
+        None,
+        "other header clear"
+    );
+
+    view.toggle_sort(&mut dom, 1); // same column → flip
+    assert_eq!(dom.get_attribute(hs[1], "data-sort"), Some("desc"));
+
+    view.toggle_sort(&mut dom, 0); // switch column → col0 asc, col1 cleared
+    assert_eq!(dom.get_attribute(hs[0], "data-sort"), Some("asc"));
+    assert_eq!(dom.get_attribute(hs[1], "data-sort"), None);
+}
+
+#[test]
+fn sort_clears_the_index_keyed_selection() {
+    let view = view_with(&[&["b"], &["a"], &["c"]], 1);
+    let mut dom = TuiDom::new();
+    let _table = mounted(&view, &mut dom, 8);
+    view.set_selection_mode(SelectionMode::Cell);
+    view.select_all(&mut dom);
+    assert!(view.selection().is_active(), "selection set");
+
+    view.sort(&mut dom, 0, SortDir::Ascending);
+    assert!(
+        !view.selection().is_active(),
+        "sorting clears the selection (it's keyed by row index)"
+    );
+}
+
+#[test]
+fn sorted_header_shows_the_direction_glyph() {
+    let view = view_with(&[&["b"], &["a"]], 1);
+    let mut dom = TuiDom::new();
+    let _table = mounted(&view, &mut dom, 8);
+    let vp = Rect::new(0, 0, 40, 12);
+    let sheet = highlight_stylesheet();
+
+    assert!(
+        !has_symbol(&mut dom, &sheet, vp, "▲"),
+        "no glyph before sorting"
+    );
+    view.sort(&mut dom, 0, SortDir::Ascending);
+    assert!(
+        has_symbol(&mut dom, &sheet, vp, "▲"),
+        "▲ after ascending sort"
+    );
+    view.toggle_sort(&mut dom, 0);
+    assert!(
+        has_symbol(&mut dom, &sheet, vp, "▼"),
+        "▼ after toggling to descending"
+    );
+    assert!(
+        !has_symbol(&mut dom, &sheet, vp, "▲"),
+        "old direction glyph removed"
+    );
+}

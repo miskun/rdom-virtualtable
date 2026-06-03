@@ -45,7 +45,7 @@ fn flex_col() -> TuiStyle {
 fn title_str(row: usize, col: usize) -> String {
     format!(
         "row {row} · col {col} / {ROWS}  ·  ↑↓←→ move · Shift+↑↓←→ select · Space toggle/commit · \
-         Ctrl-A all · Esc clear · Ctrl-C quit",
+         s sort col · Ctrl-A all · Esc clear · Ctrl-C quit",
     )
 }
 
@@ -103,6 +103,20 @@ fn main() -> io::Result<()> {
     // selection, or leave it `None` to disable.)
     view.set_selection_mode(SelectionMode::Cell);
     dom.set_focused(Some(table));
+
+    // Press `s` to sort by the cursor's column (toggles asc⇄desc). `install_nav`
+    // leaves `s` unhandled, so this listener picks it up.
+    let vs = view.clone();
+    dom.add_event_listener(table, "keydown", ListenerOptions::default(), move |ctx| {
+        if let Some(kbd) = ctx.event.detail.as_keyboard() {
+            if kbd.key == "s" {
+                let col = vs.cursor().col();
+                vs.toggle_sort(ctx.dom, col);
+                ctx.request_redraw();
+            }
+        }
+    })
+    .unwrap();
 
     // Live cursor read-out in the title. Bubbles to root after the table's
     // nav handler has moved the cursor, so it sees the post-move position.

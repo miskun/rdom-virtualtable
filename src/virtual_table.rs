@@ -49,10 +49,44 @@ impl Column {
     }
 }
 
+/// Sort direction for [`VirtualTable::sort_by`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SortDir {
+    Ascending,
+    Descending,
+}
+
+impl SortDir {
+    /// The opposite direction — handy for toggling a header.
+    pub fn flipped(self) -> Self {
+        match self {
+            SortDir::Ascending => SortDir::Descending,
+            SortDir::Descending => SortDir::Ascending,
+        }
+    }
+}
+
+/// Default cell comparator: numeric when *both* cells parse as numbers
+/// (so `"2" < "10"`), lexicographic otherwise. Override per-sort with
+/// [`VirtualTable::sort_by_with`].
+fn default_cell_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    match (a.trim().parse::<f64>(), b.trim().parse::<f64>()) {
+        (Ok(x), Ok(y)) => x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal),
+        _ => a.cmp(b),
+    }
+}
+
+/// The cell text at `col`, or `""` if the row is short.
+fn cell_at(row: &[String], col: usize) -> &str {
+    row.get(col).map(String::as_str).unwrap_or("")
+}
+
 /// The table model: columns + row data. Holds no DOM state.
 pub struct VirtualTable {
     columns: Vec<Column>,
     rows: Vec<Vec<String>>,
+    /// Current sort `(column, direction)`, or `None` if unsorted.
+    sort: Option<(usize, SortDir)>,
 }
 
 impl VirtualTable {
@@ -60,6 +94,7 @@ impl VirtualTable {
         Self {
             columns,
             rows: Vec::new(),
+            sort: None,
         }
     }
 
@@ -81,6 +116,44 @@ impl VirtualTable {
 
     pub fn columns(&self) -> &[Column] {
         &self.columns
+    }
+
+    /// Read-only view of the row data (in current sort order).
+    pub fn rows(&self) -> &[Vec<String>] {
+        &self.rows
+    }
+
+    /// Current sort `(column, direction)`, or `None` if unsorted.
+    pub fn sort_state(&self) -> Option<(usize, SortDir)> {
+        self.sort
+    }
+
+    /// Sort the rows by `col` using the [`default_cell_cmp`] comparator
+    /// (numeric-aware, else lexicographic). Stable: equal keys keep their
+    /// prior order. Records the sort so [`sort_state`](Self::sort_state)
+    /// reflects it. Out-of-range `col` sorts by the empty string (a no-op
+    /// ordering) and still records the state.
+    pub fn sort_by(&mut self, col: usize, dir: SortDir) {
+        self.sort_by_with(col, dir, default_cell_cmp);
+    }
+
+    /// Like [`sort_by`](Self::sort_by) but with a custom cell comparator —
+    /// the sort hook. `cmp(a, b)` compares the two cells' text in column
+    /// `col`; `dir` reverses it for descending.
+    pub fn sort_by_with(
+        &mut self,
+        col: usize,
+        dir: SortDir,
+        cmp: impl Fn(&str, &str) -> std::cmp::Ordering,
+    ) {
+        self.rows.sort_by(|a, b| {
+            let ord = cmp(cell_at(a, col), cell_at(b, col));
+            match dir {
+                SortDir::Ascending => ord,
+                SortDir::Descending => ord.reverse(),
+            }
+        });
+        self.sort = Some((col, dir));
     }
 
     /// Compute the row window to materialize: `(start, count)` for a
@@ -353,6 +426,90 @@ impl VirtualTableView {
         self.apply_highlight(dom);
     }
 
+    // ── Column ops: sort ─────────────────────────────────────────────
+
+    /// Current sort `(column, direction)`, or `None` if unsorted.
+    pub fn sort_state(&self) -> Option<(usize, SortDir)> {
+        self.inner.borrow().sort_state()
+    }
+
+    /// Sort by `col` in `dir`, re-materialize the visible window in the new
+    /// order, and mark the header (`data-sort="asc|desc"`, which the default
+    /// sheet turns into a `▲`/`▼` glyph). The cursor keeps its position; the
+    /// **selection is cleared** — it's keyed by row index, which now points at
+    /// different data after the reorder. Pass a custom comparator by calling
+    /// [`VirtualTable::sort_by_with`] via [`with`](Self::with) then
+    /// [`refresh`](Self::refresh) yourself.
+    pub fn sort(&self, dom: &mut TuiDom, col: usize, dir: SortDir) {
+        self.inner.borrow_mut().sort_by(col, dir);
+        self.selection.borrow_mut().clear();
+        // Mark the header (and append the glyph to its text) *before* refresh,
+        // so `size_columns` measures the glyph and the column is wide enough.
+        self.apply_sort_indicator(dom);
+        self.refresh(dom);
+    }
+
+    /// Toggle the sort on `col`: ascending the first time, then flipping
+    /// asc⇄desc on each subsequent call. Ideal for a header-click handler.
+    pub fn toggle_sort(&self, dom: &mut TuiDom, col: usize) {
+        let dir = match self.sort_state() {
+            Some((c, d)) if c == col => d.flipped(),
+            _ => SortDir::Ascending,
+        };
+        self.sort(dom, col, dir);
+    }
+
+    /// Re-materialize the currently-shown window (same start + count) — call
+    /// after mutating the model via [`with`](Self::with) so the DOM reflects
+    /// the change. No-op before [`mount`](Self::mount).
+    pub fn refresh(&self, dom: &mut TuiDom) {
+        if self.tbody.get().is_none() {
+            return;
+        }
+        let start = self.window_start.get();
+        let count = self.mounted_rows.borrow().len();
+        self.show_window(dom, start, count);
+    }
+
+    /// Reflect the model's sort state onto the headers: `data-sort="asc|desc"`
+    /// on the sorted `<th>` (the CSS contract), removed from the rest, and a
+    /// `▲`/`▼` glyph appended to the sorted header's **text**. Headers persist
+    /// across `show_window` (built once at `mount`), so this only runs on sort.
+    ///
+    /// The glyph is rendered as header text rather than the cleaner
+    /// `th[data-sort]::after` CSS pseudo-element because the substrate's
+    /// `size_columns` measures only text-node width (and runs before cascade),
+    /// so an `::after` glyph would be clipped by the auto-computed column width.
+    /// See `STATE.md` (substrate-friction backlog).
+    fn apply_sort_indicator(&self, dom: &mut TuiDom) {
+        let state = self.inner.borrow().sort_state();
+        let headers = self.header_cells.borrow();
+        let model = self.inner.borrow();
+        for (c, &th) in headers.iter().enumerate() {
+            let label = model.columns().get(c).map_or("", |col| col.header.as_str());
+            let (attr, glyph) = match state {
+                Some((sc, SortDir::Ascending)) if sc == c => (Some("asc"), " \u{25B2}"),
+                Some((sc, SortDir::Descending)) if sc == c => (Some("desc"), " \u{25BC}"),
+                _ => (None, ""),
+            };
+            match attr {
+                Some(v) => {
+                    let _ = dom.set_attribute(th, "data-sort", v);
+                }
+                None => {
+                    let _ = dom.remove_attribute(th, "data-sort");
+                }
+            }
+            // Reset the header text to `label (+ glyph)`; the first child of a
+            // header `<th>` is its text node (built that way in `mount`).
+            if let Some(text_id) = dom.node(th).child_nodes().next().map(|n| n.id()) {
+                let _ = dom
+                    .node_mut(text_id)
+                    .set_node_value(&format!("{label}{glyph}"));
+            }
+        }
+    }
+
     /// Attach a `keydown` listener to `table` that drives [`navigate`] with
     /// the built-in [`nav_for_key`] keymap (arrows, `hjkl`, `g`/`G`,
     /// `Home`/`End`, `PageUp`/`PageDown`). Handled keys are consumed
@@ -560,9 +717,9 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
     ]
 }
 
-/// A ready-made [`Stylesheet`] with the default cursor highlight from
-/// [`highlight_rules`]. Drop it straight into `App::new`, or merge the rules
-/// into your own sheet for custom colors.
+/// A ready-made [`Stylesheet`] with the default cursor/selection highlight
+/// from [`highlight_rules`]. Drop it straight into `App::new`, or merge the
+/// rules into your own sheet for custom colors.
 pub fn highlight_stylesheet() -> Stylesheet {
     let mut sheet = Stylesheet::new();
     for (selector, style) in highlight_rules() {
@@ -608,5 +765,61 @@ mod tests {
         ]);
         assert_eq!(t.row_count(), 2);
         assert_eq!(t.columns().len(), 2);
+    }
+
+    fn col0(t: &VirtualTable) -> Vec<&str> {
+        t.rows().iter().map(|r| r[0].as_str()).collect()
+    }
+
+    #[test]
+    fn sort_by_orders_rows_both_directions_and_records_state() {
+        let mut t = VirtualTable::new(vec![Column::new("a")]);
+        t.set_rows(vec![
+            vec!["banana".into()],
+            vec!["apple".into()],
+            vec!["cherry".into()],
+        ]);
+        t.sort_by(0, SortDir::Ascending);
+        assert_eq!(col0(&t), vec!["apple", "banana", "cherry"]);
+        assert_eq!(t.sort_state(), Some((0, SortDir::Ascending)));
+        t.sort_by(0, SortDir::Descending);
+        assert_eq!(col0(&t), vec!["cherry", "banana", "apple"]);
+        assert_eq!(t.sort_state(), Some((0, SortDir::Descending)));
+    }
+
+    #[test]
+    fn sort_is_numeric_aware() {
+        // Lexical sort would give 1, 10, 2; numeric gives 1, 2, 10.
+        let mut t = VirtualTable::new(vec![Column::new("n")]);
+        t.set_rows(vec![vec!["10".into()], vec!["2".into()], vec!["1".into()]]);
+        t.sort_by(0, SortDir::Ascending);
+        assert_eq!(col0(&t), vec!["1", "2", "10"]);
+    }
+
+    #[test]
+    fn sort_is_stable_for_equal_keys() {
+        // Equal sort keys keep their original relative order (stable sort).
+        let mut t = VirtualTable::new(vec![Column::new("k"), Column::new("id")]);
+        t.set_rows(vec![
+            vec!["x".into(), "first".into()],
+            vec!["x".into(), "second".into()],
+            vec!["a".into(), "third".into()],
+        ]);
+        t.sort_by(0, SortDir::Ascending);
+        let ids: Vec<&str> = t.rows().iter().map(|r| r[1].as_str()).collect();
+        assert_eq!(ids, vec!["third", "first", "second"]);
+    }
+
+    #[test]
+    fn sort_by_with_uses_a_custom_comparator() {
+        let mut t = VirtualTable::new(vec![Column::new("a")]);
+        t.set_rows(vec![
+            vec!["bb".into()],
+            vec!["a".into()],
+            vec!["ccc".into()],
+        ]);
+        t.sort_by_with(0, SortDir::Ascending, |x, y| x.len().cmp(&y.len()));
+        assert_eq!(col0(&t), vec!["a", "bb", "ccc"]);
+        assert_eq!(t.sort_state(), Some((0, SortDir::Ascending)));
     }
 }

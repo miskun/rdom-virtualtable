@@ -110,13 +110,40 @@ Configurable, consumer-side, same attribute-contract pattern as the cursor.
   focus-gated selection *paint* test). **Total: 40 (24 unit + 15 integration + 1 doctest).**
 - `examples/scroll_table.rs` opts into `SelectionMode::Cell` + an updated keymap read-out.
 
+## Shipped — sort (M3, part 1)
+
+Model-side sort + a CSS-contract header indicator, consumer-first.
+
+- `VirtualTable`: `sort_by(col, dir)` (default comparator — **numeric-aware** when both cells parse
+  as numbers, else lexicographic; **stable**), `sort_by_with(col, dir, cmp)` (the **sort hook** — a
+  custom `Fn(&str, &str) -> Ordering`), `sort_state()`, and `rows()` accessor. `SortDir {Ascending,
+  Descending}` + `flipped()`.
+- `VirtualTableView`: `sort(dom, col, dir)`, `toggle_sort(dom, col)` (asc the first time, then
+  asc⇄desc), `sort_state()`, and `refresh(dom)` (re-materialize the current window after any model
+  mutation). Sorting **clears the selection** — it's keyed by row index, which points at different
+  data after a reorder (a row-identity-keyed selection that survives sort is future work).
+- **Sort contract:** `data-sort="asc|desc"` on the sorted `<th>` (the CSS hook), plus a `▲`/`▼`
+  glyph. **The glyph is rendered as header *text*, not the cleaner `th[data-sort]::after` CSS** —
+  because the substrate's `table::size_columns` measures only text-node width (and runs before
+  cascade), so an `::after` glyph is clipped by the auto-computed column width. The `::after`
+  approach works in isolation (verified) but not under `size_columns`. → **substrate-friction item
+  below.**
+- Tests: +5 unit (sort both directions + state, numeric-aware, stable, custom comparator) and a new
+  `tests/render_sort.rs` (+4 integration: reorders the window, marks/toggles the header + column,
+  clears selection, glyph paints). **Total: 57 (33 unit + 23 integration + 1 doctest).**
+- `examples/scroll_table.rs`: press **`s`** to sort the cursor's column (toggles asc⇄desc).
+
 ## Roadmap (not yet done)
 
-- **M3 — column ops:** reorder (DOM swap, doable consumer-side) and sort hook. Column *resize* needs
-  custom layout → flag as an rdom substrate ask.
-- **Substrate-friction backlog (promote to rdom when hit):** scrollbar spacer reflecting the *total*
-  row count, horizontal scroll, column resize-by-width — each needs custom layout/paint a downstream
-  crate can't do; document and prioritize as focused rdom enhancements.
+- **M3 — column ops (cont.):** column *reorder* (move a column, DOM + model) next. Column *resize*
+  needs custom layout → flag as an rdom substrate ask.
+- **Substrate-friction backlog (promote to rdom when hit):**
+  - `table::size_columns` ignores generated `::before`/`::after` content width and runs pre-cascade —
+    so a CSS `::after` sort glyph is clipped. Once it measures pseudo width (post-cascade), move the
+    sort glyph from header text to the cleaner `th[data-sort]::after` default rule.
+  - scrollbar spacer reflecting the *total* row count, horizontal scroll, column resize-by-width —
+    each needs custom layout/paint a downstream crate can't do; document and prioritize as focused
+    rdom enhancements.
 - Side-loaded data sources; persistence callbacks (sort/order/widths/hidden).
 
 ## Review gates

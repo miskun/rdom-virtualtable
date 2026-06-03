@@ -66,6 +66,15 @@
 //! any row with a selection), styled by the same focus-gated, `:where()`
 //! defaults; query it with [`VirtualTableView::selection`] →
 //! [`GridSelection::is_selected`].
+//!
+//! ## Sort
+//!
+//! [`VirtualTableView::sort`] / [`toggle_sort`](VirtualTableView::toggle_sort)
+//! sort by a column ([`SortDir`]). The default comparator is numeric-aware
+//! (both cells parse as numbers → numeric, else lexicographic) and stable;
+//! [`VirtualTable::sort_by_with`] takes a custom comparator (the sort hook).
+//! The sorted header carries **`data-sort="asc|desc"`** (the CSS contract) plus
+//! a `▲`/`▼` glyph. Sorting clears the selection (it's keyed by row index).
 
 mod grid_cursor;
 mod selection;
@@ -74,5 +83,5 @@ mod virtual_table;
 pub use grid_cursor::{GridCursor, Nav, nav_for_key};
 pub use selection::{GridSelection, SelectionMode};
 pub use virtual_table::{
-    Column, VirtualTable, VirtualTableView, highlight_rules, highlight_stylesheet,
+    Column, SortDir, VirtualTable, VirtualTableView, highlight_rules, highlight_stylesheet,
 };

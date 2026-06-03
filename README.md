@@ -92,6 +92,25 @@ cells to build a discontiguous selection by keyboard. Selected cells get **`data
 the `<tr>` of any selected row) — same focus-gated, `:where()`-defaulted, fully-overridable CSS
 contract as the cursor. Query it with `view.selection().is_selected(row, col)`.
 
+## Sort
+
+Sort by a column — `toggle_sort` cycles ascending ⇄ descending, ideal for a header-click or key
+handler:
+
+```rust,ignore
+# use rdom_virtualtable::{VirtualTableView, SortDir};
+# use rdom_tui::TuiDom;
+# fn demo(view: &VirtualTableView, dom: &mut TuiDom) {
+view.toggle_sort(dom, 1);                 // sort by column 1 (asc, then flips)
+view.sort(dom, 0, SortDir::Descending);   // …or sort explicitly
+# }
+```
+
+The default comparator is **numeric-aware** (both cells parse as numbers → numeric, else
+lexicographic) and **stable**; pass your own via `VirtualTable::sort_by_with`. The sorted header
+gets **`data-sort="asc|desc"`** (style it however you like) plus a `▲`/`▼` glyph. Sorting clears the
+selection (it's keyed by row index, which now points at different data).
+
 ## Status
 
 Shipped:
@@ -103,9 +122,11 @@ Shipped:
   `data-active-*` CSS highlight contract + a default focus-gated stylesheet.
 - **Selection** — configurable `SelectionMode::{None, Cell, Row}`; Shift-range / Space-toggle /
   Ctrl-A / Esc; `data-selected` CSS contract + query API.
+- **Sort** — `sort` / `toggle_sort` with a numeric-aware default comparator and a custom-comparator
+  hook; `data-sort` header contract + a ▲/▼ glyph.
 
-Planned: sorting; column resize / reorder / hide; a scrollbar spacer; side-loaded data sources;
-persistence. See `STATE.md`.
+Planned: column reorder / resize / hide; a scrollbar spacer; side-loaded data sources; persistence.
+See `STATE.md`.
 
 ## License
 

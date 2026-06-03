@@ -233,3 +233,45 @@ fn move_column_clears_selection_and_cursor_follows() {
     );
     assert_eq!(view.cursor().col(), 2, "cursor follows its column");
 }
+
+#[test]
+fn show_window_bumps_a_layout_revision_to_force_header_recascade() {
+    // `size_columns` rewrites column widths via inline style without dirtying
+    // the cells; the headers live outside the rebuilt `<tbody>` subtree, so a
+    // table-level revision attribute is bumped to force a whole-table
+    // re-cascade — otherwise headers keep a stale width under the runtime's
+    // incremental (subtree) cascade.
+    let view = view_with(&[&["a", "b"]], 2);
+    let mut dom = TuiDom::new();
+    let table = mounted(&view, &mut dom, 8);
+    let r1 = dom.get_attribute(table, "data-vt-rev").map(str::to_string);
+    assert!(r1.is_some(), "show_window stamps data-vt-rev on the table");
+    view.sort(&mut dom, 0, SortDir::Ascending); // → refresh → show_window
+    let r2 = dom.get_attribute(table, "data-vt-rev").map(str::to_string);
+    assert_ne!(r1, r2, "each re-materialization bumps the revision");
+}
+
+#[test]
+fn sort_glyphs_are_configurable() {
+    let view = view_with(&[&["b"], &["a"]], 1);
+    let mut dom = TuiDom::new();
+    let _table = mounted(&view, &mut dom, 8);
+    view.set_sort_glyphs(" ^", " v"); // width-1 ASCII (terminal-ambiguity-safe)
+    let vp = Rect::new(0, 0, 40, 12);
+    let sheet = highlight_stylesheet();
+
+    view.sort(&mut dom, 0, SortDir::Ascending);
+    assert!(
+        has_symbol(&mut dom, &sheet, vp, "^"),
+        "custom ascending glyph"
+    );
+    assert!(
+        !has_symbol(&mut dom, &sheet, vp, "▲"),
+        "default glyph replaced"
+    );
+    view.toggle_sort(&mut dom, 0);
+    assert!(
+        has_symbol(&mut dom, &sheet, vp, "v"),
+        "custom descending glyph"
+    );
+}

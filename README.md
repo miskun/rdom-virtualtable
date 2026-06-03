@@ -111,6 +111,10 @@ lexicographic) and **stable**; pass your own via `VirtualTable::sort_by_with`. T
 gets **`data-sort="asc|desc"`** (style it however you like) plus a `▲`/`▼` glyph. Sorting clears the
 selection (it's keyed by row index, which now points at different data).
 
+The glyph is configurable via `set_sort_glyphs(asc, desc)` — `▲`/`▼` are East-Asian
+ambiguous-width, so if your terminal renders ambiguous glyphs double-width (shifting later header
+columns), set narrow ones, e.g. `view.set_sort_glyphs(" ^", " v")`, or `("", "")` to disable.
+
 ## Reorder columns
 
 ```rust,ignore

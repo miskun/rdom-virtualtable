@@ -74,7 +74,10 @@
 //! (both cells parse as numbers → numeric, else lexicographic) and stable;
 //! [`VirtualTable::sort_by_with`] takes a custom comparator (the sort hook).
 //! The sorted header carries **`data-sort="asc|desc"`** (the CSS contract) plus
-//! a `▲`/`▼` glyph. Sorting clears the selection (it's keyed by row index).
+//! a `▲`/`▼` glyph (configurable via
+//! [`set_sort_glyphs`](VirtualTableView::set_sort_glyphs) — use narrow glyphs
+//! if your terminal renders ambiguous-width characters double-width). Sorting
+//! clears the selection (it's keyed by row index).
 //!
 //! ## Column reorder
 //!

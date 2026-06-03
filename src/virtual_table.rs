@@ -230,6 +230,15 @@ pub struct VirtualTableView {
     /// consumers (no cursor) leave this `false`, so `show_window` never
     /// writes `data-active-*` attributes behind their back.
     nav_active: Rc<Cell<bool>>,
+    /// Sort-direction glyph suffixes `(ascending, descending)` appended to the
+    /// sorted header text. Default `(" ▲", " ▼")`. Configurable because `▲`/`▼`
+    /// are East-Asian *ambiguous-width*: a terminal set to render ambiguous
+    /// glyphs double-width shifts later header columns by one — set narrow
+    /// glyphs (`" ^"` / `" v"`, `" ↑"` / `" ↓"`) or `""` to avoid it.
+    sort_glyphs: Rc<RefCell<(String, String)>>,
+    /// Monotonic revision bumped onto the `<table>` as `data-vt-rev` after every
+    /// `size_columns`, to force a full-table re-cascade (see `show_window`).
+    layout_rev: Rc<Cell<u64>>,
 }
 
 impl VirtualTableView {
@@ -246,6 +255,8 @@ impl VirtualTableView {
             viewport_rows: Rc::new(Cell::new(0)),
             window_start: Rc::new(Cell::new(0)),
             nav_active: Rc::new(Cell::new(false)),
+            sort_glyphs: Rc::new(RefCell::new((" \u{25B2}".into(), " \u{25BC}".into()))),
+            layout_rev: Rc::new(Cell::new(0)),
         }
     }
 
@@ -325,6 +336,17 @@ impl VirtualTableView {
 
         if let Some(table) = self.table.get() {
             size_columns(dom, table);
+            // `size_columns` rewrites column widths via `inline_style` *without*
+            // dirtying the cells for the cascade. The header `<th>`s live in
+            // `<thead>` — outside the `<tbody>` subtree this method rebuilds —
+            // so under the runtime's incremental (subtree) cascade they can keep
+            // a *stale computed width* while full layout reads it, shifting the
+            // header relative to the body until some later mutation re-dirties
+            // them. Bump a table-level attribute so the whole table subtree
+            // re-cascades and the headers pick up the new widths immediately.
+            let rev = self.layout_rev.get().wrapping_add(1);
+            self.layout_rev.set(rev);
+            let _ = dom.set_attribute(table, "data-vt-rev", &rev.to_string());
         }
 
         // Re-assert the cursor highlight onto the freshly-materialized window.
@@ -471,6 +493,17 @@ impl VirtualTableView {
         self.inner.borrow().sort_state()
     }
 
+    /// Set the sort-direction glyph suffixes appended to the sorted header
+    /// text — default `(" ▲", " ▼")`. Include any leading separator yourself
+    /// (e.g. `" ^"`). Use **narrow (width-1) glyphs** if your terminal renders
+    /// East-Asian *ambiguous-width* characters (`▲`/`▼`, `↑`/`↓`) double-width,
+    /// which otherwise shifts header columns after the sorted one by one cell;
+    /// `("", "")` disables the glyph (keeping only the `data-sort` attribute).
+    /// Takes effect on the next [`sort`](Self::sort) / re-render.
+    pub fn set_sort_glyphs(&self, ascending: impl Into<String>, descending: impl Into<String>) {
+        *self.sort_glyphs.borrow_mut() = (ascending.into(), descending.into());
+    }
+
     /// Sort by `col` in `dir`, re-materialize the visible window in the new
     /// order, and mark the header (`data-sort="asc|desc"`, which the default
     /// sheet turns into a `▲`/`▼` glyph). The cursor keeps its position; the
@@ -544,11 +577,12 @@ impl VirtualTableView {
         let state = self.inner.borrow().sort_state();
         let headers = self.header_cells.borrow();
         let model = self.inner.borrow();
+        let glyphs = self.sort_glyphs.borrow();
         for (c, &th) in headers.iter().enumerate() {
             let label = model.columns().get(c).map_or("", |col| col.header.as_str());
             let (attr, glyph) = match state {
-                Some((sc, SortDir::Ascending)) if sc == c => (Some("asc"), " \u{25B2}"),
-                Some((sc, SortDir::Descending)) if sc == c => (Some("desc"), " \u{25BC}"),
+                Some((sc, SortDir::Ascending)) if sc == c => (Some("asc"), glyphs.0.as_str()),
+                Some((sc, SortDir::Descending)) if sc == c => (Some("desc"), glyphs.1.as_str()),
                 _ => (None, ""),
             };
             match attr {

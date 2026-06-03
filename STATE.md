@@ -145,6 +145,16 @@ Model-side sort + a CSS-contract header indicator, consumer-first.
   cascade), so an `::after` glyph is clipped by the auto-computed column width. The `::after`
   approach works in isolation (verified) but not under `size_columns`. → **substrate-friction item
   below.**
+- **Configurable glyph** via `set_sort_glyphs(asc, desc)` (default `(" ▲", " ▼")`). `▲`/`▼` are
+  East-Asian *ambiguous-width*; a terminal that renders ambiguous glyphs double-width would shift
+  later header columns — set narrow glyphs (`" ^"`/`" v"`) or `""` to avoid it.
+- **Stale-header layout fix.** `size_columns` rewrites column widths via `inline_style` *without*
+  dirtying the cells, and the headers sit in `<thead>` — outside the `<tbody>` subtree
+  `show_window` rebuilds — so under the runtime's **incremental (subtree) cascade** a sorted header
+  kept a *stale computed width* (visible shift, fixed only by a later mutation like navigating
+  right). Fix: `show_window` stamps a monotonic `data-vt-rev` on the `<table>` after `size_columns`,
+  forcing a whole-table re-cascade so headers pick up new widths immediately. (Proper root-cause fix
+  belongs in the substrate — see backlog.)
 - Tests: +5 unit (sort both directions + state, numeric-aware, stable, custom comparator) and a new
   `tests/render_sort.rs` (+4 integration: reorders the window, marks/toggles the header + column,
   clears selection, glyph paints). **Total: 57 (33 unit + 23 integration + 1 doctest).**
@@ -158,6 +168,11 @@ Model-side sort + a CSS-contract header indicator, consumer-first.
   - `table::size_columns` ignores generated `::before`/`::after` content width and runs pre-cascade —
     so a CSS `::after` sort glyph is clipped. Once it measures pseudo width (post-cascade), move the
     sort glyph from header text to the cleaner `th[data-sort]::after` default rule.
+  - `table::size_columns` rewrites cell widths via `inline_style` **without marking them
+    `style_dirty`/`layout_dirty`**, so the runtime's incremental subtree-cascade can read a stale
+    width for cells outside the dirtied subtree (e.g. headers after a body rebuild). We work around
+    it with the `data-vt-rev` whole-table re-cascade bump; the root-cause fix is for `size_columns`
+    to dirty the cells it resizes.
   - scrollbar spacer reflecting the *total* row count, horizontal scroll, column resize-by-width —
     each needs custom layout/paint a downstream crate can't do; document and prioritize as focused
     rdom enhancements.

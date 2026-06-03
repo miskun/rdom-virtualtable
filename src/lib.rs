@@ -100,11 +100,11 @@
 //! its own cross-axis scroll container).
 
 mod grid_cursor;
+mod model;
 mod selection;
 mod virtual_table;
 
 pub use grid_cursor::{GridCursor, Nav, nav_for_key};
+pub use model::{Column, SortDir, VirtualTable};
 pub use selection::{GridSelection, SelectionMode};
-pub use virtual_table::{
-    Column, SortDir, VirtualTable, VirtualTableView, highlight_rules, highlight_stylesheet,
-};
+pub use virtual_table::{VirtualTableView, highlight_rules, highlight_stylesheet};

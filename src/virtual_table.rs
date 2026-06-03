@@ -236,9 +236,6 @@ pub struct VirtualTableView {
     /// glyphs double-width shifts later header columns by one — set narrow
     /// glyphs (`" ^"` / `" v"`, `" ↑"` / `" ↓"`) or `""` to avoid it.
     sort_glyphs: Rc<RefCell<(String, String)>>,
-    /// Monotonic revision bumped onto the `<table>` as `data-vt-rev` after every
-    /// `size_columns`, to force a full-table re-cascade (see `show_window`).
-    layout_rev: Rc<Cell<u64>>,
 }
 
 impl VirtualTableView {
@@ -256,7 +253,6 @@ impl VirtualTableView {
             window_start: Rc::new(Cell::new(0)),
             nav_active: Rc::new(Cell::new(false)),
             sort_glyphs: Rc::new(RefCell::new((" \u{25B2}".into(), " \u{25BC}".into()))),
-            layout_rev: Rc::new(Cell::new(0)),
         }
     }
 
@@ -335,18 +331,11 @@ impl VirtualTableView {
         self.window_start.set(start);
 
         if let Some(table) = self.table.get() {
+            // `size_columns` (rdom-tui ≥ 0.3.5) stamps a column-width signature
+            // on the `<table>` when the widths change, which dirties the table
+            // subtree so the `<thead>` headers re-cascade with the new widths —
+            // no consumer-side re-cascade hack needed (cf. `TABLE-COLSYNC-DIRTY-1`).
             size_columns(dom, table);
-            // `size_columns` rewrites column widths via `inline_style` *without*
-            // dirtying the cells for the cascade. The header `<th>`s live in
-            // `<thead>` — outside the `<tbody>` subtree this method rebuilds —
-            // so under the runtime's incremental (subtree) cascade they can keep
-            // a *stale computed width* while full layout reads it, shifting the
-            // header relative to the body until some later mutation re-dirties
-            // them. Bump a table-level attribute so the whole table subtree
-            // re-cascades and the headers pick up the new widths immediately.
-            let rev = self.layout_rev.get().wrapping_add(1);
-            self.layout_rev.set(rev);
-            let _ = dom.set_attribute(table, "data-vt-rev", &rev.to_string());
         }
 
         // Re-assert the cursor highlight onto the freshly-materialized window.

@@ -148,13 +148,13 @@ Model-side sort + a CSS-contract header indicator, consumer-first.
 - **Configurable glyph** via `set_sort_glyphs(asc, desc)` (default `(" ▲", " ▼")`). `▲`/`▼` are
   East-Asian *ambiguous-width*; a terminal that renders ambiguous glyphs double-width would shift
   later header columns — set narrow glyphs (`" ^"`/`" v"`) or `""` to avoid it.
-- **Stale-header layout fix.** `size_columns` rewrites column widths via `inline_style` *without*
-  dirtying the cells, and the headers sit in `<thead>` — outside the `<tbody>` subtree
-  `show_window` rebuilds — so under the runtime's **incremental (subtree) cascade** a sorted header
-  kept a *stale computed width* (visible shift, fixed only by a later mutation like navigating
-  right). Fix: `show_window` stamps a monotonic `data-vt-rev` on the `<table>` after `size_columns`,
-  forcing a whole-table re-cascade so headers pick up new widths immediately. (Proper root-cause fix
-  belongs in the substrate — see backlog.)
+- **Stale-header layout fix — now substrate-owned (rdom-tui ≥ 0.3.5).** `size_columns` writes column
+  widths via `inline_style` without dirtying the cells, and the `<thead>` headers sit outside the
+  `<tbody>` subtree `show_window` rebuilds — so under the runtime's **incremental (subtree) cascade**
+  a sorted header kept a *stale computed width* (visible shift, fixed only by a later mutation like
+  navigating right). Originally worked around here by stamping `data-vt-rev` on the `<table>`; the
+  root cause was fixed upstream (`TABLE-COLSYNC-DIRTY-1`: `size_columns` itself stamps a column-width
+  signature when widths change), so the consumer-side hack was **removed** on the bump to 0.3.5.
 - Tests: +5 unit (sort both directions + state, numeric-aware, stable, custom comparator) and a new
   `tests/render_sort.rs` (+4 integration: reorders the window, marks/toggles the header + column,
   clears selection, glyph paints). **Total: 57 (33 unit + 23 integration + 1 doctest).**

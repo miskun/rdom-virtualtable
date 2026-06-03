@@ -235,23 +235,6 @@ fn move_column_clears_selection_and_cursor_follows() {
 }
 
 #[test]
-fn show_window_bumps_a_layout_revision_to_force_header_recascade() {
-    // `size_columns` rewrites column widths via inline style without dirtying
-    // the cells; the headers live outside the rebuilt `<tbody>` subtree, so a
-    // table-level revision attribute is bumped to force a whole-table
-    // re-cascade — otherwise headers keep a stale width under the runtime's
-    // incremental (subtree) cascade.
-    let view = view_with(&[&["a", "b"]], 2);
-    let mut dom = TuiDom::new();
-    let table = mounted(&view, &mut dom, 8);
-    let r1 = dom.get_attribute(table, "data-vt-rev").map(str::to_string);
-    assert!(r1.is_some(), "show_window stamps data-vt-rev on the table");
-    view.sort(&mut dom, 0, SortDir::Ascending); // → refresh → show_window
-    let r2 = dom.get_attribute(table, "data-vt-rev").map(str::to_string);
-    assert_ne!(r1, r2, "each re-materialization bumps the revision");
-}
-
-#[test]
 fn sort_glyphs_are_configurable() {
     let view = view_with(&[&["b"], &["a"]], 1);
     let mut dom = TuiDom::new();

@@ -198,7 +198,7 @@ fn highlight_is_focus_gated_at_paint() {
 
     let sheet = highlight_sheet(); // defaults + table:focus tint reset
     let viewport = Rect::new(0, 0, 40, 12);
-    let cursor_bg = Color::Rgb(0x2d, 0x2f, 0x31); // #2d2f31 — the cursor cell (focus tint)
+    let cursor_bg = Color::Rgb(0x2d, 0x2f, 0x31); // #2d2f31 — the cursor cell (gray, no selection)
 
     // Unfocused: the focus-gated rule must not paint the cursor.
     assert_eq!(
@@ -219,12 +219,10 @@ fn highlight_is_focus_gated_at_paint() {
 fn highlight_colors_are_opt_in_defaults() {
     // The `data-active-*` attributes are the contract; the colors are not.
     // With a bare sheet (no highlight rules) the cursor/line colors are never
-    // painted — styling is purely the consumer's CSS. (Bare, not `new()`,
-    // because the cursor cell now shares the UA `:focus` tint #2d2f31, which a
-    // focused table would otherwise show on its own background.)
+    // painted — styling is purely the consumer's CSS.
     let (mut dom, _table) = focused_navigated_grid();
     let viewport = Rect::new(0, 0, 40, 12);
-    let cell = Color::Rgb(0x2d, 0x2f, 0x31);
+    let cell = Color::Rgb(0x2d, 0x2f, 0x31); // cursor cell (gray, no selection)
     let line = Color::Rgb(0x18, 0x1a, 0x1c);
 
     assert_eq!(
@@ -491,5 +489,42 @@ fn selection_blends_with_the_cursor_crosshair() {
     assert!(
         count_bg(&mut dom, &highlight_stylesheet(), vp, plain) > 0,
         "selected cells outside the cross-hair use the plain selection (#1e3a5f)"
+    );
+}
+
+#[test]
+fn cursor_cell_is_blue_only_when_selected() {
+    let view = grid(20, 3);
+    let mut dom = TuiDom::new();
+    let root = dom.root();
+    let table = view.mount(&mut dom);
+    dom.append_child(root, table).unwrap();
+    dom.node_mut(table).set_attribute("tabindex", "0").ok();
+    view.set_viewport_rows(8);
+    view.show_window(&mut dom, 0, 8);
+    view.set_selection_mode(SelectionMode::Cell);
+    dom.set_focused(Some(table));
+
+    let vp = Rect::new(0, 0, 40, 12);
+    let gray = Color::Rgb(0x2d, 0x2f, 0x31);
+    let blue = Color::Rgb(0x3a, 0x6e, 0xa5);
+
+    // Cursor on an unselected cell → gray (no blue field around it).
+    view.navigate(&mut dom, Nav::Down); // cursor (1,0), nothing selected
+    assert!(
+        count_bg(&mut dom, &highlight_stylesheet(), vp, gray) > 0,
+        "an unselected cursor cell is gray"
+    );
+    assert_eq!(
+        count_bg(&mut dom, &highlight_stylesheet(), vp, blue),
+        0,
+        "no blue cursor while nothing is selected"
+    );
+
+    // Extend so the cursor cell is itself selected → it turns blue.
+    view.extend_selection(&mut dom, Nav::Down); // cursor (2,0), inside the range
+    assert!(
+        count_bg(&mut dom, &highlight_stylesheet(), vp, blue) > 0,
+        "a selected cursor cell turns blue to fit the selection field"
     );
 }

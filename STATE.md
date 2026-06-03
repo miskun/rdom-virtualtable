@@ -71,7 +71,8 @@ interactive controls, so a focused `<table>` is no longer washed with the focus 
 the `table:focus { background: reset }` workaround from the example and the test helper — it's a
 no-op now. New regression test `focused_table_needs_no_focus_tint_reset` proves rendering with vs
 without the reset is identical (a focused table isn't tinted). The cursor cross-hair (data-active-*
-+ `:where()` defaults) is unchanged; the cursor cell still uses rdom's focus color `#2d2f31`.
++ `:where()` defaults) is unchanged. (The cursor cell is `#2d2f31` gray by default, turning blue
+  `#3a6ea5` only when it's itself selected — see the selection entry below.)
 **25 tests (15 unit + 9 integration + 1 doctest).**
 
 ## Shipped — selection (M2)
@@ -92,7 +93,10 @@ Configurable, consumer-side, same attribute-contract pattern as the cursor.
   focus-gated blue (`#1e3a5f`) fill in `highlight_rules`. A selected cell that also sits in the
   active row/column gets a brighter `#2b557e` (pre-computed "selection over the cross-hair" blend —
   a TUI can't alpha-composite opaque cells, so the highlight shows through instead of being flatly
-  overpainted), and the cursor cell (`#2d2f31`) wins last so it stays visible inside a selection.
+  overpainted). The cursor cell wins last so it stays visible inside a selection: `#2d2f31` gray by
+  default, switching to the brightest blue `#3a6ea5` only when the cursor cell is *itself* selected
+  (keyed `td[data-active-cell][data-selected]`), so it fits the surrounding blue field instead of
+  reading as an odd gray patch.
   Precedence is pure source order (all zero-specificity `:where()`). Fully overridable.
 - Tests: +6 integration (cell rect, whole-row, toggle, select-all/clear, none-mode no-op, and a
   focus-gated selection *paint* test). **Total: 40 (24 unit + 15 integration + 1 doctest).**

@@ -479,8 +479,9 @@ fn set_flag(dom: &mut TuiDom, id: NodeId, attr: &str, on: bool) {
 /// selected cell *also* sits in the active row/column — a pre-computed
 /// "selection over the cross-hair" blend, since a TUI can't alpha-composite
 /// opaque cells, so the highlight shows through instead of being flatly
-/// overpainted — then the cursor cell (`#2d2f31`, rdom's focus color) last, so
-/// the cursor stays visible inside a selection.
+/// overpainted — then the cursor cell last (so it stays visible in a
+/// selection): `#2d2f31` gray normally, or the brightest blue (`#3a6ea5`) when
+/// the cursor cell is itself selected, so it fits the surrounding blue field.
 ///
 /// (As of rdom-tui 0.3.4 the UA focus tint is scoped to interactive controls,
 /// so a focused `<table>` is not washed with the focus background — no
@@ -501,8 +502,12 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
     // over the row/column tint" — a brighter blue so the cross-hair shows
     // through the selection instead of being flatly overpainted.
     let selected_line = Color::Rgb(0x2b, 0x55, 0x7e);
-    // #2d2f31 — the cursor cell, matching rdom's focus tint (inputs/tree).
-    let cell = Color::Rgb(0x2d, 0x2f, 0x31);
+    // #2d2f31 — the cursor cell by default: a neutral gray matching rdom's focus
+    // tint (inputs/tree). When the cursor cell is itself *selected* it sits in
+    // the blue selection field, so a gray fill reads oddly — it switches to the
+    // brightest blue (`cell_blue`) so it's the focal point of the blue family.
+    let cell_gray = Color::Rgb(0x2d, 0x2f, 0x31);
+    let cell_blue = Color::Rgb(0x3a, 0x6e, 0xa5);
     vec![
         (
             ":where(table:focus tr[data-active-row])",
@@ -532,9 +537,15 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
             TuiStyle::new().bg(selected_line),
         ),
         // The cursor cell wins last, so it stays visible inside a selection.
+        // Gray normally; a brighter blue when the cursor cell is itself
+        // selected (it sits in the blue field, so blue fits).
         (
             ":where(table:focus td[data-active-cell])",
-            TuiStyle::new().bg(cell),
+            TuiStyle::new().bg(cell_gray),
+        ),
+        (
+            ":where(table:focus td[data-active-cell][data-selected])",
+            TuiStyle::new().bg(cell_blue),
         ),
     ]
 }

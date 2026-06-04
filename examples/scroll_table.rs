@@ -10,7 +10,7 @@
 //! - **← / →** or **h / l** — move the column cursor
 //! - **g / G** or **Home / End** — first / last row
 //! - **PageUp / PageDown** — jump a page
-//! - **x** — hide the cursor's column · **X** (or click the `…` chip) — column chooser
+//! - **x** — hide the cursor's column · **c** (or click the `…` chip) — column chooser
 //!   (checklist of all columns; **↑ / ↓** move, **Enter / Space** toggle, **Esc** close)
 //! - **Ctrl-C** — quit
 //!
@@ -47,7 +47,7 @@ fn flex_col() -> TuiStyle {
 fn title_str(row: usize, col: usize) -> String {
     format!(
         "row {row} · col {col} / {ROWS}  ·  ↑↓←→ move · Shift+↑↓←→ select · Space toggle · \
-         s sort · < > move · x hide · X columns · +/- resize · Ctrl-A all · Esc clear · Ctrl-C quit",
+         s sort · < > move · x hide · c columns · +/- resize · Ctrl-A all · Esc clear · Ctrl-C quit",
     )
 }
 
@@ -106,7 +106,7 @@ fn main() -> io::Result<()> {
     view.enable_scrollbar(&mut dom);
     // Opt into the column-actions column: a persistent `…` header chip whose
     // dropdown is a checklist of every column (native checkboxes) — check to
-    // show, uncheck to hide. Open it with `X` or a chip click.
+    // show, uncheck to hide. Open it with `c` or a chip click.
     view.enable_column_actions(&mut dom);
     // Opt into cell selection — Shift+arrows extend a rectangle, Space toggles,
     // Ctrl-A selects all, Esc clears. (Try `SelectionMode::Row` for whole-row
@@ -133,10 +133,10 @@ fn main() -> io::Result<()> {
                 let hidden = vs.with(|t| t.is_column_hidden(col));
                 vs.set_column_hidden(ctx.dom, col, !hidden);
             }
-            // Capital X (Shift+x) opens the "show hidden columns" dropdown — the
-            // chip's mouse click does the same. Esc (handled by install_nav)
-            // closes it; click an entry to bring that column back.
-            "X" => vs.toggle_column_menu(ctx.dom),
+            // `c` (columns) opens the column chooser — the chip's mouse click
+            // does the same. Esc (via install_nav) closes it. Guard against
+            // Ctrl-C (quit), which also arrives as key "c".
+            "c" if !kbd.modifiers.ctrl && !kbd.modifiers.meta => vs.toggle_column_menu(ctx.dom),
             "+" | "=" => {
                 let w = vs.column_width(ctx.dom, col).unwrap_or(8);
                 vs.set_column_width(ctx.dom, col, Some(w.saturating_add(1)));

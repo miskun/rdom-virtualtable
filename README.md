@@ -138,7 +138,8 @@ from a key) opens a floating overlay listing the hidden columns, and clicking an
 column. The overlay is **self-contained** — an `position: absolute` + `z-index` panel anchored to the
 chip's own box (no anchoring outside the table subtree), so the component drops into any layout. It
 dismisses on **Esc** (wired by `install_nav`) or an **outside click**, and the chip disappears once
-nothing is hidden.
+nothing is hidden. While open, the chip carries **`data-vt-menu-open`** and the default sheet fills it
+with the panel's background (so it reads as the panel's tab) — restyle via that selector.
 The chip is a header affordance, not a model column — it never affects `columns()`, sort, widths, or
 the cursor.
 

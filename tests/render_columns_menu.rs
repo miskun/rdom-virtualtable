@@ -174,6 +174,47 @@ fn opening_the_menu_lists_the_hidden_columns() {
 }
 
 #[test]
+fn open_menu_marks_the_chip_and_paints_its_background() {
+    let view = grid(3);
+    let (mut dom, table) = mounted(&view);
+    view.set_column_hidden(&mut dom, 1, true);
+    let chip = find_attr(&dom, table, "data-vt-overflow").unwrap();
+
+    // Closed: no open marker.
+    assert!(dom.node(chip).get_attribute("data-vt-menu-open").is_none());
+
+    view.toggle_column_menu(&mut dom);
+    assert!(
+        dom.node(chip).get_attribute("data-vt-menu-open").is_some(),
+        "open chip carries the active marker"
+    );
+
+    // The default sheet fills the chip's whole box (… + a padding cell each
+    // side) with the dropdown background, so it reads as the panel's tab.
+    let vp = Rect::new(0, 0, 40, 12);
+    let sheet = highlight_stylesheet();
+    dom.cascade(&sheet);
+    dom.layout_dom(vp);
+    let mut buf = Buffer::empty(vp);
+    dom.paint_dom(&mut buf, vp);
+    let chip_bg = Color::Rgb(0x22, 0x24, 0x26);
+    let r = dom.node(chip).layout_rect().unwrap();
+    let painted = (r.x..r.x + r.width as i32)
+        .filter(|&x| buf.cell(x as u16, r.y as u16).map(|c| c.bg) == Some(chip_bg))
+        .count();
+    assert_eq!(
+        painted, r.width as usize,
+        "the whole chip box (incl. padding) is highlighted when open"
+    );
+
+    view.toggle_column_menu(&mut dom);
+    assert!(
+        dom.node(chip).get_attribute("data-vt-menu-open").is_none(),
+        "marker cleared on close"
+    );
+}
+
+#[test]
 fn toggle_closes_an_open_menu() {
     let view = grid(3);
     let (mut dom, table) = mounted(&view);

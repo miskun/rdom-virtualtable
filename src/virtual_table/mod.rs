@@ -693,6 +693,14 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
             s.display = Some(Value::Specified(Display::None));
             s
         }),
+        // Open overflow chip: while its dropdown is open the chip carries
+        // `data-vt-menu-open`. Fill its box (the "…" plus the UA `<th>` padding
+        // cell on each side) with the dropdown's background so the chip reads as
+        // the panel's tab. Same bg as the menu (`columns::MENU_BG`).
+        (
+            ":where(th[data-vt-overflow][data-vt-menu-open])",
+            TuiStyle::new().bg(columns::MENU_BG),
+        ),
     ]
 }
 

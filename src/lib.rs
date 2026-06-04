@@ -98,7 +98,8 @@
 //! chip's own box (`position: absolute` inside the table subtree, not the
 //! document root), so the component drops into any layout. It dismisses on Esc
 //! (via `install_nav`) or an outside click; the chip vanishes once nothing is
-//! hidden.
+//! hidden. While open the chip carries `data-vt-menu-open` and the default
+//! sheet highlights it (the panel's background) so it reads as the panel's tab.
 //! [`VirtualTableView::set_column_width`] resizes a column to an explicit width
 //! (or `None` for content-auto), read back via
 //! [`column_width`](VirtualTableView::column_width). On rdom-tui ≥ 0.3.6 the

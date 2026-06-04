@@ -13,6 +13,9 @@ use crate::model::{SortDir, VirtualTable};
 const OVERFLOW_ATTR: &str = "data-vt-overflow";
 /// Presence attribute marking the floating show/hide dropdown `<div>`.
 const MENU_ATTR: &str = "data-vt-menu";
+/// Presence attribute set on the chip while its dropdown is open (the default
+/// sheet highlights it so it reads as the panel's tab).
+const MENU_OPEN_ATTR: &str = "data-vt-menu-open";
 /// Presence attribute marking one clickable row in the dropdown.
 const MENU_ITEM_ATTR: &str = "data-vt-menu-item";
 /// Carries the column index a menu row unhides (read on click).
@@ -21,8 +24,9 @@ const MENU_COL_ATTR: &str = "data-vt-col";
 const CHIP_WIDTH: u16 = 3;
 /// Dropdown z-index — above the body (paint sorts by `(z_index, doc_order)`).
 const MENU_Z: i16 = 1000;
-/// Dropdown background — opaque so it reads over the rows beneath it.
-const MENU_BG: Color = Color::Rgb(0x22, 0x24, 0x26);
+/// Dropdown background — opaque so it reads over the rows beneath it. Also the
+/// open-chip highlight (the chip + panel share a bg, so they read as connected).
+pub(super) const MENU_BG: Color = Color::Rgb(0x22, 0x24, 0x26);
 
 impl VirtualTableView {
     /// Current sort `(column, direction)`, or `None` if unsorted.
@@ -146,6 +150,9 @@ impl VirtualTableView {
         let _ = dom.set_attribute(menu, MENU_ATTR, "");
         dom.append_child(chip, menu).unwrap();
         self.column_menu.set(Some(menu));
+        // Mark the chip active so the default sheet highlights it as the
+        // panel's tab while open.
+        let _ = dom.set_attribute(chip, MENU_OPEN_ATTR, "");
         self.rebuild_menu_items(dom);
     }
 
@@ -154,6 +161,9 @@ impl VirtualTableView {
     pub fn close_column_menu(&self, dom: &mut TuiDom) {
         if let Some(menu) = self.column_menu.take() {
             let _ = dom.drop_subtree(menu);
+        }
+        if let Some(chip) = self.overflow_chip.get() {
+            let _ = dom.remove_attribute(chip, MENU_OPEN_ATTR);
         }
     }
 

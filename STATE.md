@@ -279,8 +279,13 @@ way to exercise the substrate.
   `[x]`/`[ ]` glyph (UA `::before`) and toggles itself on click (the `<label>` forwards the click via
   the label + toggle builtins). A root **`change`** listener reconciles `hidden = !checked` via
   `apply_column_hidden` *without* rebuilding (the live checkbox must survive the dispatch).
-  **Result: the HTML-faithful path worked — no new substrate gaps surfaced** (label→input
-  forwarding, checkbox `change`, checkbox-in-a-custom-overlay all behaved).
+  **Result: the HTML mechanics worked** (label→input click forwarding, checkbox `change`,
+  checkbox-in-a-custom-overlay), and it surfaced one substrate gap: **`<input type=checkbox>` defaults
+  to `display: block` in rdom-tui** (HTML/`<button>` are inline-block), so the checkbox wrapped the
+  label onto its own line. Worked around by making each chooser row a flex row (fixed-width checkbox +
+  a name `<span>`); recorded as `UA-CHECKBOX-INLINE-1` in rdom's `TECH_DEBT.md` to fix in the UA sheet
+  next substrate touch. The keyboard highlight rule also had to drop its `div` qualifier (rows are
+  `<label>`s).
 - **Last visible column protected** — `apply_column_hidden` refuses to hide it; the `change` handler
   re-checks the box so glyph + model agree.
 - **Keyboard** (modal, `install_nav`): the `menu_cursor` highlight now ranges over *all* columns;

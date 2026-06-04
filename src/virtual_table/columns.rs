@@ -4,7 +4,9 @@
 
 use rdom_tui::layout::{Length, Position, ZIndex};
 use rdom_tui::runtime::builtins::table::size_columns;
-use rdom_tui::{Color, ListenerOptions, NodeId, Size, TuiDom, TuiNodeMutExt, TuiStyle, Value};
+use rdom_tui::{
+    Color, ListenerOptions, NodeId, Padding, Size, TuiDom, TuiNodeMutExt, TuiStyle, Value,
+};
 
 use super::VirtualTableView;
 use crate::model::{SortDir, VirtualTable};
@@ -237,19 +239,20 @@ impl VirtualTableView {
         // aligns its right edge with the chip's so it grows leftward and stays
         // on-screen when the chip sits at the right edge. An absolutely-
         // positioned box with `width: auto` collapses to zero (no shrink-to-fit),
-        // so width/height are explicit: the widest label (+ a padding column
-        // each side) by one row per hidden column.
+        // so width/height are explicit: the widest label plus `padding: 0 1`
+        // (one cell each side) by one row per hidden column.
         let label_w = hidden
             .iter()
             .map(|(_, l)| l.chars().count())
             .max()
             .unwrap_or(0);
-        let width = (label_w as u16).saturating_add(2).max(1);
+        let width = (label_w as u16).saturating_add(2).max(1); // label + 1 pad each side
         let height = (hidden.len() as u16).max(1);
         let mut s = TuiStyle::new()
             .bg(MENU_BG)
             .width(Size::Fixed(width))
-            .height(Size::Fixed(height));
+            .height(Size::Fixed(height))
+            .padding(Padding::symmetric(1, 0)); // 0 1 — inset rows from the edges
         s.position = Some(Value::Specified(Position::Absolute));
         s.top = Some(Value::Specified(Length::Cells(1)));
         s.right = Some(Value::Specified(Length::Cells(0)));

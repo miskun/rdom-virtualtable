@@ -162,6 +162,8 @@ fn opening_the_menu_lists_the_hidden_columns() {
     assert_eq!(s.top, Some(Value::Specified(Length::Cells(1))));
     assert_eq!(s.right, Some(Value::Specified(Length::Cells(0))));
     assert!(s.z_index.is_some(), "menu floats above the body");
+    // `padding: 0 1` insets the rows one cell from each side.
+    assert_eq!(s.padding, Some(Value::Specified(Padding::symmetric(1, 0))));
 
     // One item per hidden column, sorted by index, labelled + tagged.
     let mut items = Vec::new();

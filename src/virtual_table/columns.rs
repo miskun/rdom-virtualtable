@@ -2,7 +2,7 @@
 //! the header sort indicator. A child module of `virtual_table`, so it reaches
 //! the view's private fields while keeping the impl off the core view file.
 
-use rdom_tui::layout::{Length, Position, ZIndex};
+use rdom_tui::layout::{Border, BorderStyle, Length, Position, ZIndex};
 use rdom_tui::runtime::builtins::table::size_columns;
 use rdom_tui::{
     Color, Direction, Display, Flow, ListenerOptions, NodeId, Padding, Size, TuiDom, TuiNodeMutExt,
@@ -250,12 +250,24 @@ impl VirtualTableView {
             .max()
             .unwrap_or(0);
         let width = (CHECKBOX_W + label_w as u16).saturating_add(2).max(1);
-        let height = (cols.len() as u16).max(1);
+        // One row per column + one for the half-block bottom edge (which the
+        // border occupies its own cell row in the border-box).
+        let height = (cols.len() as u16).max(1) + 1;
+        // Soft bottom edge: a half-block bottom border drawn in the panel's own
+        // bg color over a transparent cell, so the panel reads as if it spills a
+        // half-cell past its last row (the bottom half of `▀` shows the body
+        // beneath). The half-block paint skips the cell bg automatically.
+        let edge = Border {
+            bottom: BorderStyle::HalfBlock,
+            ..Border::none()
+        };
         let mut s = TuiStyle::new()
             .bg(MENU_BG)
             .width(Size::Fixed(width))
             .height(Size::Fixed(height))
-            .padding(Padding::symmetric(1, 0)); // 0 1 — inset rows from the edges
+            .padding(Padding::symmetric(1, 0)) // 0 1 — inset rows from the edges
+            .border(edge)
+            .border_fg(MENU_BG);
         s.position = Some(Value::Specified(Position::Absolute));
         s.top = Some(Value::Specified(Length::Cells(1)));
         s.right = Some(Value::Specified(Length::Cells(0)));

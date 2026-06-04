@@ -88,6 +88,14 @@
 //! `data-vt-hidden` (the default sheet maps that to `display: none`) on its
 //! header + cells, the cursor skips it on horizontal navigation, and the hidden
 //! flag follows the column through reordering.
+//!
+//! Hiding is one-way at the cursor (it skips hidden columns), so the recovery
+//! path is a **show/hide dropdown**: when any column is hidden a trailing "…"
+//! chip appears in the header. Clicking it — or
+//! [`toggle_column_menu`](VirtualTableView::toggle_column_menu) from a key —
+//! opens a floating overlay listing the hidden columns; clicking an entry
+//! brings that column back. The overlay dismisses on Esc (via `install_nav`)
+//! or an outside click; the chip vanishes once nothing is hidden.
 //! [`VirtualTableView::set_column_width`] resizes a column to an explicit width
 //! (or `None` for content-auto), read back via
 //! [`column_width`](VirtualTableView::column_width). On rdom-tui ≥ 0.3.6 the

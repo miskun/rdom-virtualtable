@@ -222,10 +222,37 @@ ad-hoc fighting.
 - **`Column::with_width` now works** (was dead — `size_columns` used to overwrite it).
 - Tests: +2 render (`set_column_width` resizes + sticks across a re-render; `Column::with_width`
   respected). `examples/scroll_table.rs`: **`+` / `-`** resize the cursor's column.
+- **Follow-up fix (width binds to the column, not the position).** The width had been set as the
+  header `<th>`'s inline width, but `<th>` nodes don't move on reorder — so a resized width stuck to a
+  screen position. Now stored on `Column::width` (permutes with the column) and re-applied to the
+  headers via `sync_header_widths` after resize/reorder. +1 model, +1 render test.
+
+## Shipped — show/hide column dropdown (M7)
+
+Hiding is one-way at the cursor (it correctly *skips* hidden columns), so the recovery path is a
+header affordance, built purely on the substrate's public API — no rdom change.
+
+- **Overflow chip** — a trailing `<th data-vt-overflow>` ("…") appended to the persistent header
+  `<tr>`, present iff ≥1 column is hidden, `position: relative` + narrow fixed width. It is **not a
+  model column**: invisible to `columns()`, sort, width sync, and the cursor (`header_cells` tracks
+  only model columns). `size_columns` tolerates the ragged trailing header cell.
+- **Floating dropdown** — `toggle_column_menu` / `open_column_menu` / `close_column_menu` /
+  `is_column_menu_open`. A `<div data-vt-menu>` child of the chip, `position: absolute; top: 1;
+  right: 0; z-index: 1000`, opaque bg, sized to its rows (absolute `width:auto` collapses to zero, so
+  width/height are explicit). One `<div data-vt-menu-item data-vt-col=N>` per hidden column; the
+  paint pass's `(z_index, doc_order)` sort lifts it over the body (proven by a paint test).
+- **Interaction** — one root-level delegated `click` listener (the a_href/details bubble pattern, so
+  reconciling the chip/menu mid-dispatch is safe): chip click toggles, item click unhides (which
+  reconciles the menu/chip), outside click dismisses. **Esc** closes it first in `install_nav`.
+  `model::hidden_columns()` drives the list. `examples/scroll_table.rs`: **`X`** (or click the chip)
+  opens the menu.
+- Tests: +2 model (`hidden_columns` list/out-of-range), +13 render (`render_columns_menu.rs`: chip
+  appear/disappear, not-a-model-column, menu list + positioning, toggle/close, unhide-updates,
+  unhide-last tears down, the three click paths, and the paints-over-body proof).
 
 ## Roadmap (not yet done)
 
-- **Column ops:** all shipped (sort / reorder / hide-show / resize). Future: the full Table
+- **Column ops:** all shipped (sort / reorder / hide-show + show/hide dropdown / resize). Future: the full Table
   Formatting Context (`display:table`, anonymous boxes, auto algorithm, colspan/rowspan,
   percentage/CSS-rule widths) is rdom's `TABLE-TFC-1` roadmap item, not needed here.
 - **Substrate-friction backlog (promote to rdom when hit):**

@@ -74,6 +74,19 @@ pub struct VirtualTableView {
     /// The spacer `<tr>` ids (top + bottom) currently in `<tbody>`, dropped
     /// alongside the row window on the next `show_window`.
     spacers: Rc<RefCell<Vec<NodeId>>>,
+    /// The header `<tr>` — the overflow chip is appended here when a column is
+    /// hidden (the header persists across `show_window`, so the chip does too).
+    header_tr: Rc<Cell<Option<NodeId>>>,
+    /// The trailing `<th data-vt-overflow>` ("…"), present iff ≥1 column is
+    /// hidden. Clicking it (or a consumer key via [`toggle_column_menu`]) opens
+    /// the show/hide dropdown. **Not** a model column — invisible to
+    /// `columns()`, sort, width sync, and the cursor.
+    ///
+    /// [`toggle_column_menu`]: VirtualTableView::toggle_column_menu
+    overflow_chip: Rc<Cell<Option<NodeId>>>,
+    /// The open show/hide dropdown overlay (a floating `<div data-vt-menu>`
+    /// child of the chip), or `None` when closed.
+    column_menu: Rc<Cell<Option<NodeId>>>,
 }
 
 impl VirtualTableView {
@@ -93,6 +106,9 @@ impl VirtualTableView {
             sort_glyphs: Rc::new(RefCell::new((" \u{25B2}".into(), " \u{25BC}".into()))),
             scroll_mode: Rc::new(Cell::new(false)),
             spacers: Rc::new(RefCell::new(Vec::new())),
+            header_tr: Rc::new(Cell::new(None)),
+            overflow_chip: Rc::new(Cell::new(None)),
+            column_menu: Rc::new(Cell::new(None)),
         }
     }
 
@@ -127,6 +143,11 @@ impl VirtualTableView {
 
         self.table.set(Some(table));
         self.tbody.set(Some(tbody));
+        self.header_tr.set(Some(header_tr));
+        // Root-level click delegation for the overflow chip / dropdown:
+        // chip-toggle, item-unhide, and outside-click dismiss (see
+        // `install_menu_clicks`). Installed once, no-ops until a chip exists.
+        self.install_menu_clicks(dom);
         table
     }
 
@@ -459,6 +480,16 @@ impl VirtualTableView {
             let key = kbd.key.as_str();
             let shift = kbd.modifiers.shift;
             let ctrl = kbd.modifiers.ctrl || kbd.modifiers.meta;
+
+            // Esc closes the show/hide dropdown first (before it would clear a
+            // selection), matching how a popup eats the first Escape.
+            if key == "Escape" && view.is_column_menu_open() {
+                view.close_column_menu(ctx.dom);
+                ctx.event.prevent_default();
+                ctx.request_redraw();
+                return;
+            }
+
             let mut handled = true;
 
             // Selection keys (only when a selection mode is engaged): Ctrl-A

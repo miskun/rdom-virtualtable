@@ -132,6 +132,14 @@ indicator stays on the moved column. (Like sort, it clears the selection.)
 sheet maps that to `display: none`) on its header + cells, the cursor skips it on horizontal
 navigation, and the hidden flag follows the column through reordering.
 
+Because the cursor skips hidden columns, the way back is a **show/hide dropdown**. When any column
+is hidden a trailing **`…` chip** appears in the header; clicking it (or `toggle_column_menu(dom)`
+from a key) opens a floating overlay listing the hidden columns, and clicking an entry restores that
+column. The overlay floats above the body (`position: absolute` + `z-index`), dismisses on **Esc**
+(wired by `install_nav`) or an **outside click**, and the chip disappears once nothing is hidden.
+The chip is a header affordance, not a model column — it never affects `columns()`, sort, widths, or
+the cursor.
+
 `set_column_width(dom, col, Some(w))` resizes a column to an explicit width (`None` returns it to
 content-auto); `column_width(dom, col)` reads the current used width. On rdom-tui ≥ 0.3.6 the table
 respects explicit widths, so it sticks across re-renders — and `Column::with_width` works.
@@ -170,7 +178,8 @@ Shipped:
 - **Sort** — `sort` / `toggle_sort` with a numeric-aware default comparator and a custom-comparator
   hook; `data-sort` header contract + a ▲/▼ glyph.
 - **Column reorder / hide-show / resize** — `move_column`, `set_column_hidden`, `set_column_width`
-  (+ `Column::with_width`); cursor + sort indicator follow, cursor skips hidden columns.
+  (+ `Column::with_width`); cursor + sort indicator follow, cursor skips hidden columns. A trailing
+  `…` chip + floating show/hide dropdown (`toggle_column_menu`) brings hidden columns back.
 - **Native scrollbar** — opt-in `enable_scrollbar`; proportional thumb (spacer rows), decoupled
   wheel/drag, cursor-follows-on-nav. Horizontal scroll via a `Row`-flex `overflow-x` wrapper.
 

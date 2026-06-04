@@ -10,6 +10,7 @@
 //! - **← / →** or **h / l** — move the column cursor
 //! - **g / G** or **Home / End** — first / last row
 //! - **PageUp / PageDown** — jump a page
+//! - **x** — hide the cursor's column · **X** (or click the `…` chip) — show/hide menu
 //! - **Ctrl-C** — quit
 //!
 //! [`VirtualTableView::install_nav`] wires the keymap: it moves a logical
@@ -45,7 +46,7 @@ fn flex_col() -> TuiStyle {
 fn title_str(row: usize, col: usize) -> String {
     format!(
         "row {row} · col {col} / {ROWS}  ·  ↑↓←→ move · Shift+↑↓←→ select · Space toggle · \
-         s sort · < > move · x hide · +/- resize · Ctrl-A all · Esc clear · Ctrl-C quit",
+         s sort · < > move · x hide · X menu · +/- resize · Ctrl-A all · Esc clear · Ctrl-C quit",
     )
 }
 
@@ -127,6 +128,10 @@ fn main() -> io::Result<()> {
                 let hidden = vs.with(|t| t.is_column_hidden(col));
                 vs.set_column_hidden(ctx.dom, col, !hidden);
             }
+            // Capital X (Shift+x) opens the "show hidden columns" dropdown — the
+            // chip's mouse click does the same. Esc (handled by install_nav)
+            // closes it; click an entry to bring that column back.
+            "X" => vs.toggle_column_menu(ctx.dom),
             "+" | "=" => {
                 let w = vs.column_width(ctx.dom, col).unwrap_or(8);
                 vs.set_column_width(ctx.dom, col, Some(w.saturating_add(1)));

@@ -126,6 +126,24 @@ impl VirtualTable {
         self.hidden.contains(&col)
     }
 
+    /// The currently-hidden columns as `(index, header label)` pairs, sorted by
+    /// index. Out-of-range indices (recorded but past the column count) are
+    /// skipped. Drives the show/hide overflow menu — each entry is one row the
+    /// user can click to bring the column back.
+    pub fn hidden_columns(&self) -> Vec<(usize, &str)> {
+        let mut indices: Vec<usize> = self
+            .hidden
+            .iter()
+            .copied()
+            .filter(|&i| i < self.columns.len())
+            .collect();
+        indices.sort_unstable();
+        indices
+            .into_iter()
+            .map(|i| (i, self.columns[i].header.as_str()))
+            .collect()
+    }
+
     /// Set (or clear, with `None`) the explicit width of column `col`. Stored on
     /// the [`Column`], so it **follows the column through a reorder** (unlike a
     /// position-bound DOM width). No-op for out-of-range `col`.
@@ -384,6 +402,26 @@ mod tests {
         t.move_column(0, 2); // a → index 2, so its hidden flag follows
         assert!(t.is_column_hidden(2), "hidden index follows its column");
         assert!(!t.is_column_hidden(0));
+    }
+
+    #[test]
+    fn hidden_columns_lists_index_and_label_sorted() {
+        let mut t = VirtualTable::new(vec![Column::new("a"), Column::new("b"), Column::new("c")]);
+        assert!(t.hidden_columns().is_empty());
+        t.set_column_hidden(2, true);
+        t.set_column_hidden(0, true);
+        // Sorted by index, paired with the live header label.
+        assert_eq!(t.hidden_columns(), vec![(0, "a"), (2, "c")]);
+    }
+
+    #[test]
+    fn hidden_columns_skips_out_of_range_indices() {
+        let mut t = VirtualTable::new(vec![Column::new("a")]);
+        t.set_column_hidden(9, true); // recorded but out of range
+        assert!(
+            t.hidden_columns().is_empty(),
+            "no label for a phantom column"
+        );
     }
 
     #[test]

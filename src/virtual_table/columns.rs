@@ -2,10 +2,27 @@
 //! the header sort indicator. A child module of `virtual_table`, so it reaches
 //! the view's private fields while keeping the impl off the core view file.
 
-use rdom_tui::{Size, TuiDom, TuiNodeMutExt};
+use rdom_tui::layout::{Length, Position, ZIndex};
+use rdom_tui::runtime::builtins::table::size_columns;
+use rdom_tui::{Color, ListenerOptions, NodeId, Size, TuiDom, TuiNodeMutExt, TuiStyle, Value};
 
 use super::VirtualTableView;
 use crate::model::{SortDir, VirtualTable};
+
+/// Presence attribute marking the trailing overflow chip `<th>`.
+const OVERFLOW_ATTR: &str = "data-vt-overflow";
+/// Presence attribute marking the floating show/hide dropdown `<div>`.
+const MENU_ATTR: &str = "data-vt-menu";
+/// Presence attribute marking one clickable row in the dropdown.
+const MENU_ITEM_ATTR: &str = "data-vt-menu-item";
+/// Carries the column index a menu row unhides (read on click).
+const MENU_COL_ATTR: &str = "data-vt-col";
+/// Fixed width of the overflow chip (keeps it from grabbing flex space).
+const CHIP_WIDTH: u16 = 3;
+/// Dropdown z-index — above the body (paint sorts by `(z_index, doc_order)`).
+const MENU_Z: i16 = 1000;
+/// Dropdown background — opaque so it reads over the rows beneath it.
+const MENU_BG: Color = Color::Rgb(0x22, 0x24, 0x26);
 
 impl VirtualTableView {
     /// Current sort `(column, direction)`, or `None` if unsorted.
@@ -85,6 +102,192 @@ impl VirtualTableView {
         }
         // Re-materialize so the body cells pick up (or drop) the attribute.
         self.refresh(dom);
+        // Add/remove the "more columns" chip (and keep an open menu in sync).
+        self.sync_overflow_chip(dom);
+    }
+
+    // ── Show/hide overflow chip + dropdown ───────────────────────────
+
+    /// Whether the show/hide dropdown is currently open.
+    pub fn is_column_menu_open(&self) -> bool {
+        self.column_menu.get().is_some()
+    }
+
+    /// Open the dropdown if closed, close it if open. Wire this to a key (the
+    /// chip's own mouse click is handled internally). No-op when no column is
+    /// hidden (there's nothing to show, so no chip exists).
+    pub fn toggle_column_menu(&self, dom: &mut TuiDom) {
+        if self.is_column_menu_open() {
+            self.close_column_menu(dom);
+        } else {
+            self.open_column_menu(dom);
+        }
+    }
+
+    /// Open the floating show/hide dropdown under the overflow chip. No-op if
+    /// already open or if nothing is hidden.
+    pub fn open_column_menu(&self, dom: &mut TuiDom) {
+        if self.is_column_menu_open() {
+            return;
+        }
+        let Some(chip) = self.overflow_chip.get() else {
+            return;
+        };
+        if self.inner.borrow().hidden_columns().is_empty() {
+            return;
+        }
+        let menu = dom.create_element("div");
+        let _ = dom.set_attribute(menu, MENU_ATTR, "");
+        dom.append_child(chip, menu).unwrap();
+        self.column_menu.set(Some(menu));
+        // `rebuild_menu_items` populates the rows AND sets the overlay's style
+        // (its size tracks the row content, so it owns the whole style).
+        self.rebuild_menu_items(dom);
+    }
+
+    /// Close the dropdown (drops the overlay subtree). The chip stays as long
+    /// as a column is still hidden.
+    pub fn close_column_menu(&self, dom: &mut TuiDom) {
+        if let Some(menu) = self.column_menu.take() {
+            let _ = dom.drop_subtree(menu);
+        }
+    }
+
+    /// Reconcile the overflow chip with the hidden set: create it when the
+    /// first column hides, drop it (and any open menu) when the last one shows.
+    /// When the menu is open and the hidden set changed, refresh its rows.
+    fn sync_overflow_chip(&self, dom: &mut TuiDom) {
+        let Some(header_tr) = self.header_tr.get() else {
+            return;
+        };
+        let any_hidden = !self.inner.borrow().hidden_columns().is_empty();
+        if any_hidden {
+            if self.overflow_chip.get().is_none() {
+                let th = dom.create_element("th");
+                let text = dom.create_text_node("…");
+                dom.append_child(th, text).unwrap();
+                let _ = dom.set_attribute(th, OVERFLOW_ATTR, "");
+                // position:relative → containing block for the absolute menu;
+                // a narrow fixed width keeps the chip from stealing flex space.
+                let mut s = TuiStyle::new();
+                s.position = Some(Value::Specified(Position::Relative));
+                dom.node_mut(th).set_inline_style(s);
+                dom.node_mut(th).set_width(Size::Fixed(CHIP_WIDTH));
+                dom.append_child(header_tr, th).unwrap();
+                self.overflow_chip.set(Some(th));
+                // The new header cell needs a column width.
+                if let Some(table) = self.table.get() {
+                    size_columns(dom, table);
+                }
+            } else if self.is_column_menu_open() {
+                self.rebuild_menu_items(dom);
+            }
+        } else {
+            // Tear down the menu first (it's a child of the chip), then the chip.
+            self.close_column_menu(dom);
+            if let Some(th) = self.overflow_chip.take() {
+                let _ = dom.drop_subtree(th);
+                if let Some(table) = self.table.get() {
+                    size_columns(dom, table);
+                }
+            }
+        }
+    }
+
+    /// Repopulate the open dropdown with one clickable row per hidden column
+    /// (sorted by index), each tagged `data-vt-col` so a click knows which
+    /// column to bring back. No-op when the menu is closed.
+    fn rebuild_menu_items(&self, dom: &mut TuiDom) {
+        let Some(menu) = self.column_menu.get() else {
+            return;
+        };
+        let existing: Vec<NodeId> = dom.node(menu).child_nodes().map(|c| c.id()).collect();
+        for id in existing {
+            let _ = dom.drop_subtree(id);
+        }
+        let hidden: Vec<(usize, String)> = self
+            .inner
+            .borrow()
+            .hidden_columns()
+            .iter()
+            .map(|&(i, label)| (i, label.to_string()))
+            .collect();
+
+        // Float the panel under the chip, sized to its content. An
+        // absolutely-positioned box with `width: auto` collapses to zero (no
+        // shrink-to-fit), so width/height are explicit: the widest label (+ a
+        // padding column each side) by one row per hidden column.
+        let label_w = hidden
+            .iter()
+            .map(|(_, l)| l.chars().count())
+            .max()
+            .unwrap_or(0);
+        let width = (label_w as u16).saturating_add(2).max(1);
+        let height = (hidden.len() as u16).max(1);
+        let mut s = TuiStyle::new()
+            .bg(MENU_BG)
+            .width(Size::Fixed(width))
+            .height(Size::Fixed(height));
+        s.position = Some(Value::Specified(Position::Absolute));
+        s.top = Some(Value::Specified(Length::Cells(1)));
+        s.right = Some(Value::Specified(Length::Cells(0)));
+        s.z_index = Some(Value::Specified(ZIndex::Value(MENU_Z)));
+        dom.node_mut(menu).set_inline_style(s);
+
+        for (col, label) in hidden {
+            let item = dom.create_element("div");
+            let _ = dom.set_attribute(item, MENU_ITEM_ATTR, "");
+            let _ = dom.set_attribute(item, MENU_COL_ATTR, &col.to_string());
+            let text = dom.create_text_node(&label);
+            dom.append_child(item, text).unwrap();
+            dom.append_child(menu, item).unwrap();
+        }
+    }
+
+    /// Install the root-level `click` delegation (once, from `mount`). In the
+    /// bubble phase — after the full event path — so reconciling the chip/menu
+    /// (which drops subtrees) is safe. Routes: a menu-item click unhides that
+    /// column; a chip click toggles the dropdown; any other click while open
+    /// dismisses it.
+    pub(super) fn install_menu_clicks(&self, dom: &mut TuiDom) {
+        let root = dom.root();
+        let view = self.clone();
+        dom.add_event_listener(root, "click", ListenerOptions::default(), move |ctx| {
+            let Some(target) = ctx.event.target else {
+                return;
+            };
+            let menu_open = view.is_column_menu_open();
+            // 1) A menu row → unhide its column (set_column_hidden reconciles
+            //    the menu/chip). Scope the read so the immutable borrow ends
+            //    before the mutable `set_column_hidden`.
+            if menu_open {
+                let col = ctx
+                    .dom
+                    .node(target)
+                    .closest("[data-vt-menu-item]")
+                    .and_then(|item| item.get_attribute(MENU_COL_ATTR))
+                    .and_then(|s| s.parse::<usize>().ok());
+                if let Some(col) = col {
+                    view.set_column_hidden(ctx.dom, col, false);
+                    ctx.request_redraw();
+                    return;
+                }
+            }
+            // 2) The chip → toggle the dropdown.
+            if let Some(chip) = view.overflow_chip.get() {
+                if ctx.dom.node(chip).contains(target) {
+                    view.toggle_column_menu(ctx.dom);
+                    ctx.request_redraw();
+                    return;
+                }
+            }
+            // 3) Anywhere else while open → dismiss.
+            if menu_open {
+                view.close_column_menu(ctx.dom);
+                ctx.request_redraw();
+            }
+        })
+        .expect("root accepts a click listener");
     }
 
     /// Set column `col` to an explicit `width` (its cells clip/wrap to it), or

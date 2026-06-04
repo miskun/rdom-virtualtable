@@ -184,6 +184,56 @@ fn chooser_lists_all_columns_with_checkbox_state() {
     assert_eq!(dom.node(rows[1]).get_attribute("data-vt-col"), Some("1"));
 }
 
+// ── Rendering: one line per row + a visible highlight bar ───────────
+
+#[test]
+fn rows_render_on_one_line_with_a_visible_highlight_bar() {
+    let view = grid(3);
+    let (mut dom, _table) = mounted(&view);
+    let vp = Rect::new(0, 0, 40, 12);
+    let sheet = highlight_stylesheet();
+    dom.cascade(&sheet);
+    dom.layout_dom(vp);
+    view.toggle_column_menu(&mut dom);
+    view.menu_highlight_move(&mut dom, 1); // highlight the 2nd row
+    dom.cascade(&sheet);
+    dom.layout_dom(vp);
+    let mut buf = Buffer::empty(vp);
+    dom.paint_dom(&mut buf, vp);
+
+    // Read each painted row's text + count of highlight-bg cells.
+    let hl = Color::Rgb(0x2b, 0x55, 0x7e);
+    let line = |y: u16| -> (String, usize) {
+        let mut s = String::new();
+        let mut n = 0;
+        for x in 0..vp.width {
+            if let Some(c) = buf.cell(x, y) {
+                s.push_str(c.symbol());
+                if c.bg == hl {
+                    n += 1;
+                }
+            }
+        }
+        (s, n)
+    };
+    // Header at y0; the chooser drops at y1. Each row is the checkbox glyph
+    // (`[x]`) AND the label on the SAME line (regression: the input used to wrap
+    // the label onto its own line).
+    let (r0, _) = line(1);
+    assert!(
+        r0.contains("[x]") && r0.contains("c0"),
+        "row 0 on one line: {r0:?}"
+    );
+    let (r1, hl1) = line(2);
+    assert!(
+        r1.contains("[x]") && r1.contains("c1"),
+        "row 1 on one line: {r1:?}"
+    );
+    // The highlighted row (cursor moved to row 1) paints a bg bar; the others don't.
+    assert!(hl1 > 0, "highlighted row paints a bar");
+    assert_eq!(line(1).1, 0, "non-highlighted row has no bar");
+}
+
 // ── Keyboard navigation ─────────────────────────────────────────────
 
 #[test]

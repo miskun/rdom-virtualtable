@@ -5,7 +5,8 @@
 use rdom_tui::layout::{Length, Position, ZIndex};
 use rdom_tui::runtime::builtins::table::size_columns;
 use rdom_tui::{
-    Color, ListenerOptions, NodeId, Padding, Size, TuiDom, TuiNodeMutExt, TuiStyle, Value,
+    Color, Direction, Display, Flow, ListenerOptions, NodeId, Padding, Size, TuiDom, TuiNodeMutExt,
+    TuiStyle, Value,
 };
 
 use super::VirtualTableView;
@@ -256,18 +257,34 @@ impl VirtualTableView {
 
         let count = cols.len();
         for (col, label, visible) in cols {
-            // <label data-vt-menu-item data-vt-col=N><input type=checkbox [checked]> Name</label>
+            // <label data-vt-menu-item data-vt-col=N> = a flex ROW holding the
+            // native checkbox (fixed width) + a name <span>. Flex keeps them on
+            // one line deterministically (the checkbox's intrinsic width would
+            // otherwise wrap the name in the narrow panel).
             let row = dom.create_element("label");
             let _ = dom.set_attribute(row, MENU_ITEM_ATTR, "");
             let _ = dom.set_attribute(row, MENU_COL_ATTR, &col.to_string());
+            let mut rs = TuiStyle::new()
+                .direction(Direction::Row)
+                .height(Size::Fixed(1));
+            rs.display = Some(Value::Specified(Display::Block));
+            rs.flow = Some(Value::Specified(Flow::Flex));
+            dom.node_mut(row).set_inline_style(rs);
+
             let cb = dom.create_element("input");
             let _ = dom.set_attribute(cb, "type", "checkbox");
             if visible {
                 let _ = dom.set_attribute(cb, "checked", "");
             }
+            // Fixed to the glyph width so the name gets the rest.
+            dom.node_mut(cb)
+                .set_inline_style(TuiStyle::new().width(Size::Fixed(CHECKBOX_W)));
             dom.append_child(row, cb).unwrap();
+
+            let name = dom.create_element("span");
             let text = dom.create_text_node(&label);
-            dom.append_child(row, text).unwrap();
+            dom.append_child(name, text).unwrap();
+            dom.append_child(row, name).unwrap();
             dom.append_child(menu, row).unwrap();
         }
         // Keep the keyboard highlight in range, then mark the focused row.

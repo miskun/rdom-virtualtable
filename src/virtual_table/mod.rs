@@ -717,7 +717,7 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
         // `data-vt-menu-active` (Up/Down move it). A brighter blue than the
         // panel bg so the selection reads clearly.
         (
-            ":where(div[data-vt-menu-item][data-vt-menu-active])",
+            ":where([data-vt-menu-item][data-vt-menu-active])",
             TuiStyle::new().bg(Color::Rgb(0x2b, 0x55, 0x7e)),
         ),
     ]

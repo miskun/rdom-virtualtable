@@ -253,14 +253,18 @@ header affordance, built purely on the substrate's public API — no rdom change
   back to the **self-contained** relative-chip anchoring (the brief root-anchored workaround is gone).
   Regression `chip_glyph_paints_once_after_hide_menu_hide` (real `App` + `TestBackend`, incremental
   cascade) asserts a single glyph through the hide→menu→hide sequence.
-- **Interaction** — one root-level delegated `click` listener (the a_href/details bubble pattern, so
-  reconciling the chip/menu mid-dispatch is safe): chip click toggles, item click unhides (which
-  reconciles the menu/chip), outside click dismisses. **Esc** closes it first in `install_nav`.
+- **Interaction** — mouse: one root-level delegated `click` listener (the a_href/details bubble
+  pattern, so reconciling the chip/menu mid-dispatch is safe): chip click toggles, item click unhides
+  (which reconciles the menu/chip), outside click dismisses. Keyboard: while open the menu is
+  **modal** in `install_nav` — ↑/↓ (`k`/`j`) move `menu_cursor` (reflected as `data-vt-menu-active`
+  on the row + a highlight rule), Enter/Space `menu_activate` the highlighted column, Esc closes, and
+  the table cursor/selection nav is frozen (the handler returns early while open).
   `model::hidden_columns()` drives the list. `examples/scroll_table.rs`: **`X`** (or click the chip)
   opens the menu.
-- Tests: +2 model (`hidden_columns` list/out-of-range), +13 render (`render_columns_menu.rs`: chip
-  appear/disappear, not-a-model-column, menu list + positioning, toggle/close, unhide-updates,
-  unhide-last tears down, the three click paths, and the paints-over-body proof).
+- Tests: +2 model (`hidden_columns` list/out-of-range), render (`render_columns_menu.rs`): chip
+  appear/disappear, not-a-model-column, menu list + positioning + padding, open-chip highlight,
+  keyboard highlight move/clamp + activate, toggle/close, unhide-updates, unhide-last tears down, the
+  three click paths, the paints-over-body proof, and the `chip_glyph_paints_once` regression.
 
 ## Roadmap (not yet done)
 

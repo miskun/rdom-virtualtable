@@ -22,6 +22,8 @@ const MENU_OPEN_ATTR: &str = "data-vt-menu-open";
 const MENU_ITEM_ATTR: &str = "data-vt-menu-item";
 /// Carries the column index a menu row unhides (read on click).
 const MENU_COL_ATTR: &str = "data-vt-col";
+/// Presence attribute on the keyboard-highlighted dropdown row.
+const MENU_ACTIVE_ATTR: &str = "data-vt-menu-active";
 /// Fixed width of the overflow chip (keeps it from grabbing flex space).
 const CHIP_WIDTH: u16 = 3;
 /// Dropdown z-index — above the body (paint sorts by `(z_index, doc_order)`).
@@ -155,6 +157,8 @@ impl VirtualTableView {
         // Mark the chip active so the default sheet highlights it as the
         // panel's tab while open.
         let _ = dom.set_attribute(chip, MENU_OPEN_ATTR, "");
+        // Keyboard focus starts on the first row.
+        self.menu_cursor.set(0);
         self.rebuild_menu_items(dom);
     }
 
@@ -259,6 +263,7 @@ impl VirtualTableView {
         s.z_index = Some(Value::Specified(ZIndex::Value(MENU_Z)));
         dom.node_mut(menu).set_inline_style(s);
 
+        let count = hidden.len();
         for (col, label) in hidden {
             let item = dom.create_element("div");
             let _ = dom.set_attribute(item, MENU_ITEM_ATTR, "");
@@ -266,6 +271,64 @@ impl VirtualTableView {
             let text = dom.create_text_node(&label);
             dom.append_child(item, text).unwrap();
             dom.append_child(menu, item).unwrap();
+        }
+        // Keep the keyboard highlight in range as the list shrinks, then mark
+        // the focused row (`data-vt-menu-active`).
+        if count > 0 {
+            let cur = self.menu_cursor.get().min(count - 1);
+            self.menu_cursor.set(cur);
+            self.apply_menu_highlight(dom);
+        }
+    }
+
+    /// Mark the `menu_cursor`-th dropdown row with `data-vt-menu-active` and
+    /// clear it from the rest. No-op when the menu is closed.
+    fn apply_menu_highlight(&self, dom: &mut TuiDom) {
+        let Some(menu) = self.column_menu.get() else {
+            return;
+        };
+        let cur = self.menu_cursor.get();
+        let items: Vec<NodeId> = dom
+            .node(menu)
+            .child_nodes()
+            .filter(|c| c.get_attribute(MENU_ITEM_ATTR).is_some())
+            .map(|c| c.id())
+            .collect();
+        for (i, &item) in items.iter().enumerate() {
+            super::set_flag(dom, item, MENU_ACTIVE_ATTR, i == cur);
+        }
+    }
+
+    /// Move the dropdown's keyboard highlight by `delta` rows (clamped). No-op
+    /// when the menu is closed.
+    pub fn menu_highlight_move(&self, dom: &mut TuiDom, delta: isize) {
+        if !self.is_column_menu_open() {
+            return;
+        }
+        let count = self.inner.borrow().hidden_columns().len();
+        if count == 0 {
+            return;
+        }
+        let cur = self.menu_cursor.get() as isize;
+        let next = (cur + delta).clamp(0, count as isize - 1) as usize;
+        self.menu_cursor.set(next);
+        self.apply_menu_highlight(dom);
+    }
+
+    /// Activate the highlighted dropdown row: un-hide that column (which
+    /// rebuilds or closes the menu). No-op when the menu is closed.
+    pub fn menu_activate(&self, dom: &mut TuiDom) {
+        if !self.is_column_menu_open() {
+            return;
+        }
+        let col = self
+            .inner
+            .borrow()
+            .hidden_columns()
+            .get(self.menu_cursor.get())
+            .map(|&(i, _)| i);
+        if let Some(col) = col {
+            self.set_column_hidden(dom, col, false);
         }
     }
 

@@ -87,6 +87,10 @@ pub struct VirtualTableView {
     /// The open show/hide dropdown overlay (a floating `<div data-vt-menu>`
     /// child of the chip), or `None` when closed.
     column_menu: Rc<Cell<Option<NodeId>>>,
+    /// Index of the highlighted row in the open dropdown (into the current
+    /// hidden-columns list). Meaningful only while the menu is open; reset to 0
+    /// on open and clamped as the list shrinks.
+    menu_cursor: Rc<Cell<usize>>,
 }
 
 impl VirtualTableView {
@@ -109,6 +113,7 @@ impl VirtualTableView {
             header_tr: Rc::new(Cell::new(None)),
             overflow_chip: Rc::new(Cell::new(None)),
             column_menu: Rc::new(Cell::new(None)),
+            menu_cursor: Rc::new(Cell::new(0)),
         }
     }
 
@@ -481,10 +486,19 @@ impl VirtualTableView {
             let shift = kbd.modifiers.shift;
             let ctrl = kbd.modifiers.ctrl || kbd.modifiers.meta;
 
-            // Esc closes the show/hide dropdown first (before it would clear a
-            // selection), matching how a popup eats the first Escape.
-            if key == "Escape" && view.is_column_menu_open() {
-                view.close_column_menu(ctx.dom);
+            // While the show/hide dropdown is open it OWNS the keyboard (modal):
+            // Up/Down move the menu highlight, Enter/Space activate the
+            // highlighted row (un-hide that column), Esc closes. Table cursor /
+            // selection navigation is frozen — we always return here so arrows
+            // never leak through to the cells behind the open menu.
+            if view.is_column_menu_open() {
+                match key {
+                    "Escape" => view.close_column_menu(ctx.dom),
+                    "ArrowDown" | "j" => view.menu_highlight_move(ctx.dom, 1),
+                    "ArrowUp" | "k" => view.menu_highlight_move(ctx.dom, -1),
+                    "Enter" | " " => view.menu_activate(ctx.dom),
+                    _ => return, // unrelated key: ignore, but don't move the table
+                }
                 ctx.event.prevent_default();
                 ctx.request_redraw();
                 return;
@@ -700,6 +714,13 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
         (
             ":where(th[data-vt-overflow][data-vt-menu-open])",
             TuiStyle::new().bg(columns::MENU_BG),
+        ),
+        // Keyboard highlight inside the open dropdown: the focused row carries
+        // `data-vt-menu-active` (Up/Down move it). A brighter blue than the
+        // panel bg so the selection reads clearly.
+        (
+            ":where(div[data-vt-menu-item][data-vt-menu-active])",
+            TuiStyle::new().bg(Color::Rgb(0x2b, 0x55, 0x7e)),
         ),
     ]
 }

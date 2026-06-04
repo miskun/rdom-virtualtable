@@ -11,6 +11,7 @@
 //! - **g / G** or **Home / End** — first / last row
 //! - **PageUp / PageDown** — jump a page
 //! - **x** — hide the cursor's column · **X** (or click the `…` chip) — show/hide menu
+//!   (while open: **↑ / ↓** move the highlight, **Enter / Space** restore, **Esc** close)
 //! - **Ctrl-C** — quit
 //!
 //! [`VirtualTableView::install_nav`] wires the keymap: it moves a logical

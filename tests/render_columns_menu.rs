@@ -465,3 +465,78 @@ fn chip_glyph_paints_once_after_hide_menu_hide() {
         "exactly one '…' chip glyph on screen, got {glyphs}"
     );
 }
+
+/// Items of the open dropdown, in order.
+fn menu_items(dom: &TuiDom, table: NodeId) -> Vec<NodeId> {
+    let menu = find_attr(dom, table, "data-vt-menu").expect("menu open");
+    let mut v = Vec::new();
+    find_all(dom, menu, "data-vt-menu-item", &mut v);
+    v
+}
+fn active_index(dom: &TuiDom, items: &[NodeId]) -> Option<usize> {
+    items
+        .iter()
+        .position(|&i| dom.node(i).get_attribute("data-vt-menu-active").is_some())
+}
+
+#[test]
+fn opening_the_menu_highlights_the_first_row() {
+    let view = grid(3);
+    let (mut dom, table) = mounted(&view);
+    view.set_column_hidden(&mut dom, 0, true);
+    view.set_column_hidden(&mut dom, 2, true);
+    view.toggle_column_menu(&mut dom);
+
+    let items = menu_items(&dom, table);
+    assert_eq!(items.len(), 2);
+    assert_eq!(
+        active_index(&dom, &items),
+        Some(0),
+        "first row highlighted on open"
+    );
+}
+
+#[test]
+fn menu_highlight_moves_and_clamps() {
+    let view = grid(3);
+    let (mut dom, table) = mounted(&view);
+    view.set_column_hidden(&mut dom, 0, true);
+    view.set_column_hidden(&mut dom, 2, true);
+    view.toggle_column_menu(&mut dom);
+
+    view.menu_highlight_move(&mut dom, 1);
+    assert_eq!(active_index(&dom, &menu_items(&dom, table)), Some(1));
+    // Clamps at the bottom …
+    view.menu_highlight_move(&mut dom, 5);
+    assert_eq!(active_index(&dom, &menu_items(&dom, table)), Some(1));
+    // … and at the top.
+    view.menu_highlight_move(&mut dom, -9);
+    assert_eq!(active_index(&dom, &menu_items(&dom, table)), Some(0));
+}
+
+#[test]
+fn menu_activate_unhides_the_highlighted_column() {
+    let view = grid(3);
+    let (mut dom, table) = mounted(&view);
+    view.set_column_hidden(&mut dom, 0, true);
+    view.set_column_hidden(&mut dom, 2, true);
+    view.toggle_column_menu(&mut dom);
+
+    view.menu_highlight_move(&mut dom, 1); // highlight the c2 row
+    view.menu_activate(&mut dom);
+
+    assert!(
+        !view.with(|t| t.is_column_hidden(2)),
+        "highlighted column came back"
+    );
+    assert!(
+        view.with(|t| t.is_column_hidden(0)),
+        "the other stays hidden"
+    );
+    assert!(
+        view.is_column_menu_open(),
+        "menu stays open while >0 hidden"
+    );
+    // Highlight clamped to the one remaining row.
+    assert_eq!(active_index(&dom, &menu_items(&dom, table)), Some(0));
+}

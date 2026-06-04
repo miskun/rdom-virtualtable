@@ -89,20 +89,19 @@
 //! header + cells, the cursor skips it on horizontal navigation, and the hidden
 //! flag follows the column through reordering.
 //!
-//! Hiding is one-way at the cursor (it skips hidden columns), so the recovery
-//! path is a **show/hide dropdown**: when any column is hidden a trailing "…"
-//! chip appears in the header. Clicking it — or
-//! [`toggle_column_menu`](VirtualTableView::toggle_column_menu) from a key —
-//! opens a floating overlay listing the hidden columns; clicking an entry
-//! brings that column back. The overlay is **self-contained** — anchored to the
-//! chip's own box (`position: absolute` inside the table subtree, not the
-//! document root), so the component drops into any layout. While open the menu
-//! **owns the keyboard** (`install_nav`): ↑/↓ (or `k`/`j`) move the highlight,
-//! Enter/Space restore the highlighted column, Esc closes, and the table cursor
-//! is frozen. It also dismisses on an outside click; the chip vanishes once
-//! nothing is hidden. The highlighted row carries `data-vt-menu-active` and the
-//! open chip `data-vt-menu-open` (highlighted as the panel's tab) — both
-//! restylable.
+//! [`VirtualTableView::enable_column_actions`] adds an opt-in **column-actions
+//! column**: a persistent "…" chip as the trailing header cell whose dropdown
+//! is a **column chooser** — a checklist of every column built like HTML (a
+//! `<label>` wrapping a native `<input type="checkbox">`): check to show,
+//! uncheck to hide (the last visible column can't be hidden). The overlay is
+//! self-contained (anchored to the chip's own box, not the document root). While
+//! open it **owns the keyboard** (`install_nav`): ↑/↓ (or `k`/`j`) move the
+//! highlight, Enter/Space toggle the highlighted column, Esc closes, the table
+//! cursor is frozen; it also dismisses on an outside click. Mouse toggling is
+//! the native checkbox (label forwards the click; a `change` listener
+//! reconciles the model). The highlighted row carries `data-vt-menu-active` and
+//! the open chip `data-vt-menu-open` (the panel's tab) — both restylable. (The
+//! column's body cells are reserved for per-row action triggers — a follow-up.)
 //! [`VirtualTableView::set_column_width`] resizes a column to an explicit width
 //! (or `None` for content-auto), read back via
 //! [`column_width`](VirtualTableView::column_width). On rdom-tui ≥ 0.3.6 the

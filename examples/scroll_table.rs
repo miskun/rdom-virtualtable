@@ -10,8 +10,8 @@
 //! - **← / →** or **h / l** — move the column cursor
 //! - **g / G** or **Home / End** — first / last row
 //! - **PageUp / PageDown** — jump a page
-//! - **x** — hide the cursor's column · **X** (or click the `…` chip) — show/hide menu
-//!   (while open: **↑ / ↓** move the highlight, **Enter / Space** restore, **Esc** close)
+//! - **x** — hide the cursor's column · **X** (or click the `…` chip) — column chooser
+//!   (checklist of all columns; **↑ / ↓** move, **Enter / Space** toggle, **Esc** close)
 //! - **Ctrl-C** — quit
 //!
 //! [`VirtualTableView::install_nav`] wires the keymap: it moves a logical
@@ -47,7 +47,7 @@ fn flex_col() -> TuiStyle {
 fn title_str(row: usize, col: usize) -> String {
     format!(
         "row {row} · col {col} / {ROWS}  ·  ↑↓←→ move · Shift+↑↓←→ select · Space toggle · \
-         s sort · < > move · x hide · X menu · +/- resize · Ctrl-A all · Esc clear · Ctrl-C quit",
+         s sort · < > move · x hide · X columns · +/- resize · Ctrl-A all · Esc clear · Ctrl-C quit",
     )
 }
 
@@ -104,6 +104,10 @@ fn main() -> io::Result<()> {
     // 500 rows (spacer rows), and the mouse wheel / drag scrolls decoupled from
     // the cursor. Keyboard nav still scrolls the view to keep the cursor visible.
     view.enable_scrollbar(&mut dom);
+    // Opt into the column-actions column: a persistent `…` header chip whose
+    // dropdown is a checklist of every column (native checkboxes) — check to
+    // show, uncheck to hide. Open it with `X` or a chip click.
+    view.enable_column_actions(&mut dom);
     // Opt into cell selection — Shift+arrows extend a rectangle, Space toggles,
     // Ctrl-A selects all, Esc clears. (Try `SelectionMode::Row` for whole-row
     // selection, or leave it `None` to disable.)

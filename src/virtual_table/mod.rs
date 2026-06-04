@@ -149,11 +149,9 @@ impl VirtualTableView {
         self.table.set(Some(table));
         self.tbody.set(Some(tbody));
         self.header_tr.set(Some(header_tr));
-        // Root-level click delegation for the overflow chip / dropdown:
-        // chip-toggle, item-unhide, and outside-click dismiss (see
-        // `install_menu_clicks`). Installed once, no-ops until a chip exists.
-        self.install_menu_clicks(dom);
         table
+        // The column-actions chip + its click/change listeners are opt-in —
+        // see `enable_column_actions`. A table that never calls it pays nothing.
     }
 
     /// Materialize rows `[start, start + count)` into the `<tbody>`,

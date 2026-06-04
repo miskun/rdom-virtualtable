@@ -26,6 +26,9 @@ const MENU_COL_ATTR: &str = "data-vt-col";
 const MENU_ACTIVE_ATTR: &str = "data-vt-menu-active";
 /// Fixed width of the overflow chip (keeps it from grabbing flex space).
 const CHIP_WIDTH: u16 = 3;
+/// Cells the native checkbox glyph occupies in a chooser row (`"[x] "`, from
+/// the UA `[type=checkbox]::before` content).
+const CHECKBOX_W: u16 = 4;
 /// Dropdown z-index — above the body (paint sorts by `(z_index, doc_order)`).
 const MENU_Z: i16 = 1000;
 /// Dropdown background — opaque so it reads over the rows beneath it. Also the
@@ -101,29 +104,66 @@ impl VirtualTableView {
     /// Hide or show the column at `col`. A hidden column gets `data-vt-hidden`
     /// on its header `<th>` and every body cell (the default sheet maps that to
     /// `display: none`), the cursor skips it on horizontal navigation, and the
-    /// flag follows the column through reordering. No-op for out-of-range `col`
-    /// at the DOM level (the model still records it).
+    /// flag follows the column through reordering. Hiding the **last visible**
+    /// column is refused (an all-hidden table is useless). No-op for
+    /// out-of-range `col` at the DOM level (the model still records it).
     pub fn set_column_hidden(&self, dom: &mut TuiDom, col: usize, hidden: bool) {
-        self.inner.borrow_mut().set_column_hidden(col, hidden);
-        if let Some(&th) = self.header_cells.borrow().get(col) {
-            super::set_flag(dom, th, "data-vt-hidden", hidden);
+        self.apply_column_hidden(dom, col, hidden);
+        // Keep an open chooser's checkboxes in sync with the model.
+        if self.is_column_menu_open() {
+            self.rebuild_menu_items(dom);
         }
-        // Re-materialize so the body cells pick up (or drop) the attribute.
-        self.refresh(dom);
-        // Add/remove the "more columns" chip (and keep an open menu in sync).
-        self.sync_overflow_chip(dom);
     }
 
-    // ── Show/hide overflow chip + dropdown ───────────────────────────
+    // ── Column-actions column: header chooser (+ row actions, later) ──
+
+    /// Enable the **column-actions column**: a persistent trailing header cell
+    /// (the `…` chip) whose dropdown is a checklist of every column — check to
+    /// show, uncheck to hide. Opt-in (a generic table shouldn't grow the
+    /// affordance unasked), idempotent, and self-contained (the dropdown
+    /// anchors to the chip, no root anchoring). Call after [`mount`](Self::mount).
+    ///
+    /// The body cells of this column are reserved for per-row action triggers
+    /// (a follow-up); today only the header chooser is wired.
+    pub fn enable_column_actions(&self, dom: &mut TuiDom) {
+        let Some(header_tr) = self.header_tr.get() else {
+            return;
+        };
+        if self.overflow_chip.get().is_some() {
+            return; // already enabled
+        }
+        let th = dom.create_element("th");
+        let text = dom.create_text_node("…");
+        dom.append_child(th, text).unwrap();
+        let _ = dom.set_attribute(th, OVERFLOW_ATTR, "");
+        // `position: relative` makes the chip the containing block for the
+        // absolutely-positioned dropdown, so the affordance is self-contained
+        // inside the table subtree. Narrow fixed width so it doesn't grab flex
+        // space. (rdom-tui ≥ 0.3.7 fixes the stale-anon-box double-paint a
+        // relative chip + dropped absolute child used to trigger.)
+        let mut s = TuiStyle::new();
+        s.position = Some(Value::Specified(Position::Relative));
+        dom.node_mut(th).set_inline_style(s);
+        dom.node_mut(th).set_width(Size::Fixed(CHIP_WIDTH));
+        dom.append_child(header_tr, th).unwrap();
+        self.overflow_chip.set(Some(th));
+        if let Some(table) = self.table.get() {
+            size_columns(dom, table);
+        }
+        // Root-level delegation: clicks (chip toggle / outside dismiss) and the
+        // native checkbox `change` (reconcile model + block last-visible).
+        self.install_menu_clicks(dom);
+        self.install_menu_changes(dom);
+    }
 
     /// Whether the show/hide dropdown is currently open.
     pub fn is_column_menu_open(&self) -> bool {
         self.column_menu.get().is_some()
     }
 
-    /// Open the dropdown if closed, close it if open. Wire this to a key (the
-    /// chip's own mouse click is handled internally). No-op when no column is
-    /// hidden (there's nothing to show, so no chip exists).
+    /// Open the chooser if closed, close it if open. Wire this to a key (the
+    /// chip's own mouse click toggles it too). No-op until
+    /// [`enable_column_actions`](Self::enable_column_actions).
     pub fn toggle_column_menu(&self, dom: &mut TuiDom) {
         if self.is_column_menu_open() {
             self.close_column_menu(dom);
@@ -132,21 +172,15 @@ impl VirtualTableView {
         }
     }
 
-    /// Open the floating show/hide dropdown under the overflow chip. No-op if
-    /// already open or if nothing is hidden.
+    /// Open the floating column chooser under the chip. No-op if already open
+    /// or before [`enable_column_actions`](Self::enable_column_actions).
     pub fn open_column_menu(&self, dom: &mut TuiDom) {
         if self.is_column_menu_open() {
-            return;
-        }
-        if self.overflow_chip.get().is_none() {
             return;
         }
         let Some(chip) = self.overflow_chip.get() else {
             return;
         };
-        if self.inner.borrow().hidden_columns().is_empty() {
-            return;
-        }
         // The overlay is a child of the chip (its `position: relative`
         // containing block) — the affordance stays entirely within the table
         // subtree. `rebuild_menu_items` sizes + positions it.
@@ -173,55 +207,11 @@ impl VirtualTableView {
         }
     }
 
-    /// Reconcile the overflow chip with the hidden set: create it when the
-    /// first column hides, drop it (and any open menu) when the last one shows.
-    /// When the menu is open and the hidden set changed, refresh its rows.
-    fn sync_overflow_chip(&self, dom: &mut TuiDom) {
-        let Some(header_tr) = self.header_tr.get() else {
-            return;
-        };
-        let any_hidden = !self.inner.borrow().hidden_columns().is_empty();
-        if any_hidden {
-            if self.overflow_chip.get().is_none() {
-                let th = dom.create_element("th");
-                let text = dom.create_text_node("…");
-                dom.append_child(th, text).unwrap();
-                let _ = dom.set_attribute(th, OVERFLOW_ATTR, "");
-                // `position: relative` makes the chip the containing block for
-                // the absolutely-positioned dropdown, so the whole affordance is
-                // self-contained inside the table subtree (no root anchoring —
-                // a generic component must not reach outside itself). A narrow
-                // fixed width keeps it from stealing flex space. Requires
-                // rdom-tui ≥ 0.3.7, which fixes the stale-anon-box double-paint a
-                // relative chip + dropped absolute child used to trigger.
-                let mut s = TuiStyle::new();
-                s.position = Some(Value::Specified(Position::Relative));
-                dom.node_mut(th).set_inline_style(s);
-                dom.node_mut(th).set_width(Size::Fixed(CHIP_WIDTH));
-                dom.append_child(header_tr, th).unwrap();
-                self.overflow_chip.set(Some(th));
-                // The new header cell needs a column width.
-                if let Some(table) = self.table.get() {
-                    size_columns(dom, table);
-                }
-            } else if self.is_column_menu_open() {
-                self.rebuild_menu_items(dom);
-            }
-        } else {
-            // Tear down the menu first (it's a child of the chip), then the chip.
-            self.close_column_menu(dom);
-            if let Some(th) = self.overflow_chip.take() {
-                let _ = dom.drop_subtree(th);
-                if let Some(table) = self.table.get() {
-                    size_columns(dom, table);
-                }
-            }
-        }
-    }
-
-    /// Repopulate the open dropdown with one clickable row per hidden column
-    /// (sorted by index), each tagged `data-vt-col` so a click knows which
-    /// column to bring back. No-op when the menu is closed.
+    /// Repopulate the open chooser: one row per column (in column order), built
+    /// like HTML — a `<label>` wrapping a native `<input type="checkbox">`
+    /// (checked = visible) and the column name. The native checkbox renders the
+    /// `[x]`/`[ ]` glyph and toggles itself on click (the label forwards the
+    /// click); a `change` listener reconciles the model. No-op when closed.
     fn rebuild_menu_items(&self, dom: &mut TuiDom) {
         let Some(menu) = self.column_menu.get() else {
             return;
@@ -230,28 +220,29 @@ impl VirtualTableView {
         for id in existing {
             let _ = dom.drop_subtree(id);
         }
-        let hidden: Vec<(usize, String)> = self
-            .inner
-            .borrow()
-            .hidden_columns()
-            .iter()
-            .map(|&(i, label)| (i, label.to_string()))
-            .collect();
+        // (index, label, visible) for every column, in order.
+        let cols: Vec<(usize, String, bool)> = {
+            let m = self.inner.borrow();
+            m.columns()
+                .iter()
+                .enumerate()
+                .map(|(i, c)| (i, c.header.clone(), !m.is_column_hidden(i)))
+                .collect()
+        };
 
         // Float the panel just under the chip, anchored to the chip's own
-        // (position:relative) box — `top: 1` drops it one row below, `right: 0`
-        // aligns its right edge with the chip's so it grows leftward and stays
-        // on-screen when the chip sits at the right edge. An absolutely-
+        // (position:relative) box — `top: 1` one row below, `right: 0` aligns its
+        // right edge with the chip's so it grows leftward. An absolutely-
         // positioned box with `width: auto` collapses to zero (no shrink-to-fit),
-        // so width/height are explicit: the widest label plus `padding: 0 1`
-        // (one cell each side) by one row per hidden column.
-        let label_w = hidden
+        // so width/height are explicit: the checkbox glyph (`[x] `) + the widest
+        // label, plus `padding: 0 1`, by one row per column.
+        let label_w = cols
             .iter()
-            .map(|(_, l)| l.chars().count())
+            .map(|(_, l, _)| l.chars().count())
             .max()
             .unwrap_or(0);
-        let width = (label_w as u16).saturating_add(2).max(1); // label + 1 pad each side
-        let height = (hidden.len() as u16).max(1);
+        let width = (CHECKBOX_W + label_w as u16).saturating_add(2).max(1);
+        let height = (cols.len() as u16).max(1);
         let mut s = TuiStyle::new()
             .bg(MENU_BG)
             .width(Size::Fixed(width))
@@ -263,22 +254,53 @@ impl VirtualTableView {
         s.z_index = Some(Value::Specified(ZIndex::Value(MENU_Z)));
         dom.node_mut(menu).set_inline_style(s);
 
-        let count = hidden.len();
-        for (col, label) in hidden {
-            let item = dom.create_element("div");
-            let _ = dom.set_attribute(item, MENU_ITEM_ATTR, "");
-            let _ = dom.set_attribute(item, MENU_COL_ATTR, &col.to_string());
+        let count = cols.len();
+        for (col, label, visible) in cols {
+            // <label data-vt-menu-item data-vt-col=N><input type=checkbox [checked]> Name</label>
+            let row = dom.create_element("label");
+            let _ = dom.set_attribute(row, MENU_ITEM_ATTR, "");
+            let _ = dom.set_attribute(row, MENU_COL_ATTR, &col.to_string());
+            let cb = dom.create_element("input");
+            let _ = dom.set_attribute(cb, "type", "checkbox");
+            if visible {
+                let _ = dom.set_attribute(cb, "checked", "");
+            }
+            dom.append_child(row, cb).unwrap();
             let text = dom.create_text_node(&label);
-            dom.append_child(item, text).unwrap();
-            dom.append_child(menu, item).unwrap();
+            dom.append_child(row, text).unwrap();
+            dom.append_child(menu, row).unwrap();
         }
-        // Keep the keyboard highlight in range as the list shrinks, then mark
-        // the focused row (`data-vt-menu-active`).
+        // Keep the keyboard highlight in range, then mark the focused row.
         if count > 0 {
             let cur = self.menu_cursor.get().min(count - 1);
             self.menu_cursor.set(cur);
             self.apply_menu_highlight(dom);
         }
+    }
+
+    /// Visible (non-hidden) column count.
+    fn visible_count(&self) -> usize {
+        let m = self.inner.borrow();
+        m.columns().len()
+            - (0..m.columns().len())
+                .filter(|&i| m.is_column_hidden(i))
+                .count()
+    }
+
+    /// Apply a column's hidden state to the model + body WITHOUT rebuilding the
+    /// open chooser (so it's safe to call from the checkbox `change` handler,
+    /// which must not drop the checkbox mid-dispatch). Blocks hiding the last
+    /// visible column. Returns the hidden state actually applied.
+    fn apply_column_hidden(&self, dom: &mut TuiDom, col: usize, hidden: bool) -> bool {
+        if hidden && self.visible_count() <= 1 && !self.inner.borrow().is_column_hidden(col) {
+            return false; // refuse to hide the last visible column
+        }
+        self.inner.borrow_mut().set_column_hidden(col, hidden);
+        if let Some(&th) = self.header_cells.borrow().get(col) {
+            super::set_flag(dom, th, "data-vt-hidden", hidden);
+        }
+        self.refresh(dom);
+        hidden
     }
 
     /// Mark the `menu_cursor`-th dropdown row with `data-vt-menu-active` and
@@ -299,13 +321,14 @@ impl VirtualTableView {
         }
     }
 
-    /// Move the dropdown's keyboard highlight by `delta` rows (clamped). No-op
-    /// when the menu is closed.
+    /// Move the chooser's keyboard highlight by `delta` rows (clamped). The
+    /// chooser lists every column, so the cursor ranges over all columns. No-op
+    /// when closed.
     pub fn menu_highlight_move(&self, dom: &mut TuiDom, delta: isize) {
         if !self.is_column_menu_open() {
             return;
         }
-        let count = self.inner.borrow().hidden_columns().len();
+        let count = self.inner.borrow().columns().len();
         if count == 0 {
             return;
         }
@@ -315,21 +338,18 @@ impl VirtualTableView {
         self.apply_menu_highlight(dom);
     }
 
-    /// Activate the highlighted dropdown row: un-hide that column (which
-    /// rebuilds or closes the menu). No-op when the menu is closed.
+    /// Toggle the highlighted column's visibility (Enter/Space), then rebuild
+    /// the chooser so the checkbox reflects it. Refuses to hide the last visible
+    /// column. No-op when closed. (Keyboard context — the rebuild is safe here,
+    /// unlike the mouse `change` path which must not drop the live checkbox.)
     pub fn menu_activate(&self, dom: &mut TuiDom) {
         if !self.is_column_menu_open() {
             return;
         }
-        let col = self
-            .inner
-            .borrow()
-            .hidden_columns()
-            .get(self.menu_cursor.get())
-            .map(|&(i, _)| i);
-        if let Some(col) = col {
-            self.set_column_hidden(dom, col, false);
-        }
+        let col = self.menu_cursor.get();
+        let now_hidden = self.inner.borrow().is_column_hidden(col);
+        self.apply_column_hidden(dom, col, !now_hidden);
+        self.rebuild_menu_items(dom);
     }
 
     /// Install the root-level `click` delegation (once, from `mount`). In the
@@ -345,23 +365,13 @@ impl VirtualTableView {
                 return;
             };
             let menu_open = view.is_column_menu_open();
-            // 1) A menu row → unhide its column (set_column_hidden reconciles
-            //    the menu/chip). Scope the read so the immutable borrow ends
-            //    before the mutable `set_column_hidden`.
-            if menu_open {
-                let col = ctx
-                    .dom
-                    .node(target)
-                    .closest("[data-vt-menu-item]")
-                    .and_then(|item| item.get_attribute(MENU_COL_ATTR))
-                    .and_then(|s| s.parse::<usize>().ok());
-                if let Some(col) = col {
-                    view.set_column_hidden(ctx.dom, col, false);
-                    ctx.request_redraw();
-                    return;
-                }
+            // 1) A click *inside* the open chooser (a checkbox / its label) is a
+            //    native toggle — the label + checkbox builtins flip it and fire
+            //    `change`, which `install_menu_changes` reconciles. Leave it be.
+            if menu_open && ctx.dom.node(target).closest("[data-vt-menu]").is_some() {
+                return;
             }
-            // 2) The chip → toggle the dropdown.
+            // 2) The chip glyph (in the chip but outside the menu) → toggle.
             if let Some(chip) = view.overflow_chip.get() {
                 if ctx.dom.node(chip).contains(target) {
                     view.toggle_column_menu(ctx.dom);
@@ -376,6 +386,40 @@ impl VirtualTableView {
             }
         })
         .expect("root accepts a click listener");
+    }
+
+    /// Install the root-level `change` listener that reconciles the model when a
+    /// chooser checkbox toggles (native click / Space). Reads the checkbox's new
+    /// `checked` and applies `hidden = !checked` to its `data-vt-col` column —
+    /// without rebuilding (the live checkbox must survive the dispatch). Hiding
+    /// the last visible column is refused: the checkbox is re-checked.
+    fn install_menu_changes(&self, dom: &mut TuiDom) {
+        let root = dom.root();
+        let view = self.clone();
+        dom.add_event_listener(root, "change", ListenerOptions::default(), move |ctx| {
+            let Some(target) = ctx.event.target else {
+                return;
+            };
+            // The changed checkbox's row → column index.
+            let col = ctx
+                .dom
+                .node(target)
+                .closest("[data-vt-menu-item]")
+                .and_then(|row| row.get_attribute(MENU_COL_ATTR))
+                .and_then(|s| s.parse::<usize>().ok());
+            let Some(col) = col else {
+                return;
+            };
+            let checked = ctx.dom.node(target).has_attribute("checked");
+            let applied = view.apply_column_hidden(ctx.dom, col, !checked);
+            // Refused (last visible column): re-check the box so glyph + model
+            // agree again.
+            if !checked && !applied {
+                let _ = ctx.dom.set_attribute(target, "checked", "");
+            }
+            ctx.request_redraw();
+        })
+        .expect("root accepts a change listener");
     }
 
     /// Set column `col` to an explicit `width` (its cells clip/wrap to it), or

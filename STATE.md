@@ -266,6 +266,32 @@ header affordance, built purely on the substrate's public API — no rdom change
   keyboard highlight move/clamp + activate, toggle/close, unhide-updates, unhide-last tears down, the
   three click paths, the paints-over-body proof, and the `chip_glyph_paints_once` regression.
 
+## Shipped — column-actions column + HTML-faithful chooser (M8)
+
+Reframe of M7's chip into a general **column-actions column** (the trailing column), built the HTML
+way to exercise the substrate.
+
+- **Opt-in, persistent.** `enable_column_actions(dom)` mounts the `…` chip once (no more reactive
+  create/drop tied to the hidden set) and installs the click + `change` listeners. A table that
+  doesn't call it pays nothing. The chip is still not a model column.
+- **Chooser lists ALL columns, built like HTML.** Each row is `<label data-vt-menu-item
+  data-vt-col=N><input type="checkbox" [checked]> Name</label>`. The native checkbox renders the
+  `[x]`/`[ ]` glyph (UA `::before`) and toggles itself on click (the `<label>` forwards the click via
+  the label + toggle builtins). A root **`change`** listener reconciles `hidden = !checked` via
+  `apply_column_hidden` *without* rebuilding (the live checkbox must survive the dispatch).
+  **Result: the HTML-faithful path worked — no new substrate gaps surfaced** (label→input
+  forwarding, checkbox `change`, checkbox-in-a-custom-overlay all behaved).
+- **Last visible column protected** — `apply_column_hidden` refuses to hide it; the `change` handler
+  re-checks the box so glyph + model agree.
+- **Keyboard** (modal, `install_nav`): the `menu_cursor` highlight now ranges over *all* columns;
+  Enter/Space `menu_activate` toggles the highlighted column (keyboard context → safe to rebuild).
+- Tests: `tests/render_columns_menu.rs` rewritten to the new contract (chip lifecycle incl.
+  opt-in/persistent, all-columns checklist + checkbox state, keyboard move/clamp/activate,
+  last-column guard, chip highlight, overlay paint, **App-driven native-checkbox click toggle**,
+  outside-click dismiss, and the `chip_glyph_paints_once` regression).
+- **Next:** the column's body cells host per-row action triggers (edit / remove / open-in-… per-row
+  dropdowns) via a registered-actions API — design TBD.
+
 ## Roadmap (not yet done)
 
 - **Column ops:** all shipped (sort / reorder / hide-show + show/hide dropdown / resize). Future: the full Table

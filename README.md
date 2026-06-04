@@ -130,22 +130,29 @@ indicator stays on the moved column. (Like sort, it clears the selection.)
 
 `set_column_hidden(dom, col, hidden)` hides/shows a column — it gets `data-vt-hidden` (the default
 sheet maps that to `display: none`) on its header + cells, the cursor skips it on horizontal
-navigation, and the hidden flag follows the column through reordering.
+navigation, and the hidden flag follows the column through reordering. Hiding the **last visible**
+column is refused.
 
-Because the cursor skips hidden columns, the way back is a **show/hide dropdown**. When any column
-is hidden a trailing **`…` chip** appears in the header; clicking it (or `toggle_column_menu(dom)`
-from a key) opens a floating overlay listing the hidden columns, and clicking an entry restores that
-column. The overlay is **self-contained** — an `position: absolute` + `z-index` panel anchored to the
-chip's own box (no anchoring outside the table subtree), so the component drops into any layout.
+## Column-actions column (chooser)
 
-While the menu is open it **owns the keyboard** (modal, via `install_nav`): **↑ / ↓** (or `k` / `j`)
-move the highlighted row, **Enter / Space** restores the highlighted column, **Esc** closes — and
-the table cursor is **frozen** so arrows don't leak through to the cells behind it. It also dismisses
-on an **outside click**, and the chip disappears once nothing is hidden. The highlighted row carries
-**`data-vt-menu-active`** and the open chip carries **`data-vt-menu-open`** (the default sheet fills
-it with the panel's background so it reads as the panel's tab) — restyle via those selectors. The
-chip is a header affordance, not a model column — it never affects `columns()`, sort, widths, or the
-cursor.
+`enable_column_actions(dom)` adds a persistent **`…` chip** as the trailing header cell. Clicking it
+(or `toggle_column_menu(dom)` from a key) opens a **column chooser** — a checklist of *every* column,
+built like HTML (a `<label>` wrapping a native `<input type="checkbox">`): **check to show, uncheck
+to hide**. It's opt-in (a generic table shouldn't grow the affordance unasked) and self-contained —
+the dropdown is an `position: absolute` + `z-index` panel anchored to the chip's own box, nothing
+reaches outside the table subtree, so it drops into any layout.
+
+While open the chooser **owns the keyboard** (modal, via `install_nav`): **↑ / ↓** (or `k` / `j`)
+move the highlight, **Enter / Space** toggle the highlighted column, **Esc** closes — and the table
+cursor is **frozen** so arrows don't leak to the cells behind it. It also dismisses on an **outside
+click**. Mouse toggling is the native checkbox (the `<label>` forwards the click); a `change`
+listener reconciles the model. The highlighted row carries **`data-vt-menu-active`** and the open
+chip **`data-vt-menu-open`** (filled with the panel's background so it reads as the panel's tab) —
+restyle via those selectors. The chip is a header affordance, not a model column — it never affects
+`columns()`, sort, widths, or the cursor.
+
+> The column-actions column's body cells are reserved for **per-row action triggers** (edit / remove
+> / open-in-… dropdowns) — a planned follow-up. Today only the header chooser is wired.
 
 `set_column_width(dom, col, Some(w))` resizes a column to an explicit width (`None` returns it to
 content-auto); `column_width(dom, col)` reads the current used width. On rdom-tui ≥ 0.3.6 the table
@@ -185,8 +192,10 @@ Shipped:
 - **Sort** — `sort` / `toggle_sort` with a numeric-aware default comparator and a custom-comparator
   hook; `data-sort` header contract + a ▲/▼ glyph.
 - **Column reorder / hide-show / resize** — `move_column`, `set_column_hidden`, `set_column_width`
-  (+ `Column::with_width`); cursor + sort indicator follow, cursor skips hidden columns. A trailing
-  `…` chip + floating show/hide dropdown (`toggle_column_menu`) brings hidden columns back.
+  (+ `Column::with_width`); cursor + sort indicator follow, cursor skips hidden columns.
+- **Column-actions column** — opt-in `enable_column_actions`; a persistent `…` chip whose dropdown is
+  a native-checkbox **column chooser** (check to show, uncheck to hide; last column protected),
+  modal keyboard nav, self-contained overlay. (Body-cell per-row actions: planned.)
 - **Native scrollbar** — opt-in `enable_scrollbar`; proportional thumb (spacer rows), decoupled
   wheel/drag, cursor-follows-on-nav. Horizontal scroll via a `Row`-flex `overflow-x` wrapper.
 

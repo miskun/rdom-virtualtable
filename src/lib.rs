@@ -94,8 +94,11 @@
 //! chip appears in the header. Clicking it — or
 //! [`toggle_column_menu`](VirtualTableView::toggle_column_menu) from a key —
 //! opens a floating overlay listing the hidden columns; clicking an entry
-//! brings that column back. The overlay dismisses on Esc (via `install_nav`)
-//! or an outside click; the chip vanishes once nothing is hidden.
+//! brings that column back. The overlay is **self-contained** — anchored to the
+//! chip's own box (`position: absolute` inside the table subtree, not the
+//! document root), so the component drops into any layout. It dismisses on Esc
+//! (via `install_nav`) or an outside click; the chip vanishes once nothing is
+//! hidden.
 //! [`VirtualTableView::set_column_width`] resizes a column to an explicit width
 //! (or `None` for content-auto), read back via
 //! [`column_width`](VirtualTableView::column_width). On rdom-tui ≥ 0.3.6 the

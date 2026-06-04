@@ -5,7 +5,7 @@
 //! opens a floating dropdown listing the hidden columns. Clicking an entry
 //! brings that column back.
 
-use rdom_tui::layout::Position;
+use rdom_tui::layout::{Length, Position};
 use rdom_tui::render::{Buffer, LayoutExt, PaintExt, Rect, Terminal, TestBackend};
 use rdom_tui::style::CascadeExt;
 use rdom_tui::{
@@ -143,7 +143,7 @@ fn chip_is_not_a_model_column() {
 #[test]
 fn opening_the_menu_lists_the_hidden_columns() {
     let view = grid(3);
-    let (mut dom, _table) = mounted(&view);
+    let (mut dom, table) = mounted(&view);
     view.set_column_hidden(&mut dom, 2, true);
     view.set_column_hidden(&mut dom, 0, true);
 
@@ -151,18 +151,16 @@ fn opening_the_menu_lists_the_hidden_columns() {
     view.toggle_column_menu(&mut dom);
     assert!(view.is_column_menu_open());
 
-    let menu = find_attr(&dom, dom.root(), "data-vt-menu").expect("menu overlay");
-    // A viewport overlay anchored to the root (NOT a child of the chip — a
-    // positioned chip ancestor double-painted under the flex header row).
-    assert_eq!(dom.node(menu).parent_node().unwrap().id(), dom.root());
+    let menu = find_attr(&dom, table, "data-vt-menu").expect("menu overlay");
+    // Self-contained: the overlay is a child of the chip (its position:relative
+    // containing block), entirely inside the table subtree — no root anchoring.
+    let chip = find_attr(&dom, table, "data-vt-overflow").unwrap();
+    assert_eq!(dom.node(menu).parent_node().unwrap().id(), chip);
     let s = dom.node(menu).inline_style().expect("menu is styled");
     assert_eq!(s.position, Some(Value::Specified(Position::Absolute)));
-    // top/left are anchored from the chip's measured rect (exact values are
-    // layout-dependent); the contract is that they're set + it floats.
-    assert!(
-        s.top.is_some() && s.left.is_some(),
-        "anchored from the chip rect"
-    );
+    // Dropped one row below the chip, right-aligned to it.
+    assert_eq!(s.top, Some(Value::Specified(Length::Cells(1))));
+    assert_eq!(s.right, Some(Value::Specified(Length::Cells(0))));
     assert!(s.z_index.is_some(), "menu floats above the body");
 
     // One item per hidden column, sorted by index, labelled + tagged.

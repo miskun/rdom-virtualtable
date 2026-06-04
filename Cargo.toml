@@ -13,4 +13,4 @@ readme = "README.md"
 [dependencies]
 # Public rdom-tui surface only (native <table>, element/text builders,
 # column sync). No path dep, no private hooks.
-rdom-tui = "0.3.6"  # 0.3.6+: size_columns respects explicit column widths (TABLE-COLSYNC-1) → column resize + Column::with_width work
+rdom-tui = "0.3.7"  # 0.3.7+: layout collapses display:none rects + clears stale anon boxes → self-contained dropdown anchoring works (LAYOUT-DISPLAY-NONE-STALE-RECT, PAINT-RELATIVE-ABSPOS-DOUBLE)

@@ -13,7 +13,7 @@ materializes **only the visible row window**. A dataset of any size renders a bo
 ```toml
 [dependencies]
 rdom-virtualtable = "0.1"
-rdom-tui = "0.3.6"
+rdom-tui = "0.3.7"
 ```
 
 ## Try it
@@ -135,8 +135,10 @@ navigation, and the hidden flag follows the column through reordering.
 Because the cursor skips hidden columns, the way back is a **show/hide dropdown**. When any column
 is hidden a trailing **`…` chip** appears in the header; clicking it (or `toggle_column_menu(dom)`
 from a key) opens a floating overlay listing the hidden columns, and clicking an entry restores that
-column. The overlay floats above the body (`position: absolute` + `z-index`), dismisses on **Esc**
-(wired by `install_nav`) or an **outside click**, and the chip disappears once nothing is hidden.
+column. The overlay is **self-contained** — an `position: absolute` + `z-index` panel anchored to the
+chip's own box (no anchoring outside the table subtree), so the component drops into any layout. It
+dismisses on **Esc** (wired by `install_nav`) or an **outside click**, and the chip disappears once
+nothing is hidden.
 The chip is a header affordance, not a model column — it never affects `columns()`, sort, widths, or
 the cursor.
 

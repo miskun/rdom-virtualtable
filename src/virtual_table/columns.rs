@@ -4,9 +4,7 @@
 
 use rdom_tui::layout::{Length, Position, ZIndex};
 use rdom_tui::runtime::builtins::table::size_columns;
-use rdom_tui::{
-    Color, ListenerOptions, NodeId, Size, TuiDom, TuiNodeExt, TuiNodeMutExt, TuiStyle, Value,
-};
+use rdom_tui::{Color, ListenerOptions, NodeId, Size, TuiDom, TuiNodeMutExt, TuiStyle, Value};
 
 use super::VirtualTableView;
 use crate::model::{SortDir, VirtualTable};
@@ -135,17 +133,18 @@ impl VirtualTableView {
         if self.overflow_chip.get().is_none() {
             return;
         }
+        let Some(chip) = self.overflow_chip.get() else {
+            return;
+        };
         if self.inner.borrow().hidden_columns().is_empty() {
             return;
         }
-        // The overlay is a child of the ROOT (a viewport-positioned layer), not
-        // the chip — see the chip-creation note for why the chip must not be a
-        // positioned ancestor. `rebuild_menu_items` positions it from the chip's
-        // measured rect and sets the rest of the style.
-        let root = dom.root();
+        // The overlay is a child of the chip (its `position: relative`
+        // containing block) — the affordance stays entirely within the table
+        // subtree. `rebuild_menu_items` sizes + positions it.
         let menu = dom.create_element("div");
         let _ = dom.set_attribute(menu, MENU_ATTR, "");
-        dom.append_child(root, menu).unwrap();
+        dom.append_child(chip, menu).unwrap();
         self.column_menu.set(Some(menu));
         self.rebuild_menu_items(dom);
     }
@@ -172,12 +171,16 @@ impl VirtualTableView {
                 let text = dom.create_text_node("…");
                 dom.append_child(th, text).unwrap();
                 let _ = dom.set_attribute(th, OVERFLOW_ATTR, "");
-                // A plain static cell with a narrow fixed width (keeps it from
-                // stealing flex space). The dropdown anchors to the *root* using
-                // this chip's measured rect — NOT as a positioned child of the
-                // chip — so the chip never establishes a stacking context (a
-                // `position: relative` chip with an absolute child painted twice
-                // under the flex header row; see STATE.md).
+                // `position: relative` makes the chip the containing block for
+                // the absolutely-positioned dropdown, so the whole affordance is
+                // self-contained inside the table subtree (no root anchoring —
+                // a generic component must not reach outside itself). A narrow
+                // fixed width keeps it from stealing flex space. Requires
+                // rdom-tui ≥ 0.3.7, which fixes the stale-anon-box double-paint a
+                // relative chip + dropped absolute child used to trigger.
+                let mut s = TuiStyle::new();
+                s.position = Some(Value::Specified(Position::Relative));
+                dom.node_mut(th).set_inline_style(s);
                 dom.node_mut(th).set_width(Size::Fixed(CHIP_WIDTH));
                 dom.append_child(header_tr, th).unwrap();
                 self.overflow_chip.set(Some(th));
@@ -219,12 +222,13 @@ impl VirtualTableView {
             .map(|&(i, label)| (i, label.to_string()))
             .collect();
 
-        // Float the panel just under the chip, sized to its content. It's
-        // positioned against the VIEWPORT (root child), so its top/left come
-        // from the chip's measured layout rect. An absolutely-positioned box
-        // with `width: auto` collapses to zero (no shrink-to-fit), so width and
-        // height are explicit: the widest label (+ a padding column each side)
-        // by one row per hidden column.
+        // Float the panel just under the chip, anchored to the chip's own
+        // (position:relative) box — `top: 1` drops it one row below, `right: 0`
+        // aligns its right edge with the chip's so it grows leftward and stays
+        // on-screen when the chip sits at the right edge. An absolutely-
+        // positioned box with `width: auto` collapses to zero (no shrink-to-fit),
+        // so width/height are explicit: the widest label (+ a padding column
+        // each side) by one row per hidden column.
         let label_w = hidden
             .iter()
             .map(|(_, l)| l.chars().count())
@@ -232,27 +236,13 @@ impl VirtualTableView {
             .unwrap_or(0);
         let width = (label_w as u16).saturating_add(2).max(1);
         let height = (hidden.len() as u16).max(1);
-        // Drop below the chip; right-align the panel's right edge with the
-        // chip's so it stays on-screen when the chip sits near the right edge.
-        let chip_rect = self
-            .overflow_chip
-            .get()
-            .and_then(|c| dom.node(c).layout_rect());
-        let (top, left) = match chip_rect {
-            Some(r) => {
-                let right_edge = r.x + r.width as i32;
-                let left = (right_edge - width as i32).max(0);
-                ((r.y + r.height as i32) as i16, left as i16)
-            }
-            None => (1, 0),
-        };
         let mut s = TuiStyle::new()
             .bg(MENU_BG)
             .width(Size::Fixed(width))
             .height(Size::Fixed(height));
         s.position = Some(Value::Specified(Position::Absolute));
-        s.top = Some(Value::Specified(Length::Cells(top)));
-        s.left = Some(Value::Specified(Length::Cells(left)));
+        s.top = Some(Value::Specified(Length::Cells(1)));
+        s.right = Some(Value::Specified(Length::Cells(0)));
         s.z_index = Some(Value::Specified(ZIndex::Value(MENU_Z)));
         dom.node_mut(menu).set_inline_style(s);
 

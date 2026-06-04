@@ -233,23 +233,26 @@ Hiding is one-way at the cursor (it correctly *skips* hidden columns), so the re
 header affordance, built purely on the substrate's public API — no rdom change.
 
 - **Overflow chip** — a trailing `<th data-vt-overflow>` ("…") appended to the persistent header
-  `<tr>`, present iff ≥1 column is hidden, a plain **static** cell with a narrow fixed width. It is
-  **not a model column**: invisible to `columns()`, sort, width sync, and the cursor (`header_cells`
-  tracks only model columns). `size_columns` tolerates the ragged trailing header cell.
-- **Floating dropdown** — `toggle_column_menu` / `open_column_menu` / `close_column_menu` /
-  `is_column_menu_open`. A `<div data-vt-menu>` **child of the root** (a viewport overlay layer),
-  `position: absolute; z-index: 1000`, opaque bg, sized to its rows (absolute `width:auto` collapses
-  to zero, so width/height are explicit). Its `top`/`left` are anchored from the **chip's measured
-  layout rect** (read at open time — the chip is laid out by then). One `<div data-vt-menu-item
-  data-vt-col=N>` per hidden column; the paint pass's `(z_index, doc_order)` sort lifts it over the
-  body (proven by a paint test).
-- **Bug fixed (duplicate "…")** — the first cut made the chip `position: relative` and parented the
-  absolute dropdown *under* it. Under the App's *incremental* cascade, after open+close the chip's
-  glyph echoed at every hidden column's stale header slot (`… … …`). Two substrate bugs collided
-  (recorded as friction below); the fix sidesteps both by keeping the chip static and anchoring the
-  overlay to the **root** off the chip's measured rect. Regression test
-  `chip_glyph_paints_once_after_hide_menu_hide` reproduces via a real `App` + `TestBackend` and
-  asserts a single glyph.
+  `<tr>`, present iff ≥1 column is hidden, `position: relative` (the dropdown's containing block) with
+  a narrow fixed width. It is **not a model column**: invisible to `columns()`, sort, width sync, and
+  the cursor (`header_cells` tracks only model columns). `size_columns` tolerates the ragged trailing
+  header cell.
+- **Self-contained dropdown** — `toggle_column_menu` / `open_column_menu` / `close_column_menu` /
+  `is_column_menu_open`. A `<div data-vt-menu>` **child of the chip**, `position: absolute; top: 1;
+  right: 0; z-index: 1000`, opaque bg, sized to its rows (absolute `width:auto` collapses to zero, so
+  width/height are explicit). Anchored entirely inside the table subtree — **no root anchoring** (a
+  generic component must not reach outside itself). One `<div data-vt-menu-item data-vt-col=N>` per
+  hidden column; the paint pass's `(z_index, doc_order)` sort lifts it over the body (proven by a
+  paint test).
+- **Duplicate-"…" bug → fixed in the substrate (rdom-tui 0.3.7).** The first cut (relative chip +
+  dropdown under it) hit two rdom layout-pass bugs under the App's *incremental* cascade —
+  `LAYOUT-DISPLAY-NONE-STALE-RECT` (hidden cells kept stale rects) and `PAINT-RELATIVE-ABSPOS-DOUBLE`
+  (a pure-text-leaf carve-out never cleared `anonymous_blocks`, so the chip glyph echoed at its old
+  slot). Both fixed upstream in **0.3.7** (`layout_node` collapses display:none subtrees;
+  `layout_children` clears `anonymous_blocks` at the top). With the substrate fixed the dropdown went
+  back to the **self-contained** relative-chip anchoring (the brief root-anchored workaround is gone).
+  Regression `chip_glyph_paints_once_after_hide_menu_hide` (real `App` + `TestBackend`, incremental
+  cascade) asserts a single glyph through the hide→menu→hide sequence.
 - **Interaction** — one root-level delegated `click` listener (the a_href/details bubble pattern, so
   reconciling the chip/menu mid-dispatch is safe): chip click toggles, item click unhides (which
   reconciles the menu/chip), outside click dismisses. **Esc** closes it first in `install_nav`.
@@ -272,17 +275,15 @@ header affordance, built purely on the substrate's public API — no rdom change
     column-width signature so resized cells re-cascade; the `data-vt-rev` hack was removed.
   - **Scrollbar spacer (total-row extent) + horizontal scroll — DONE** (above) on the existing scroll
     substrate, no new rdom API. Column *resize-by-width* still needs custom layout → substrate ask.
-  - **`LAYOUT-DISPLAY-NONE-STALE-RECT` (rdom, found M7).** When a persistent flex/block child goes
-    `visible → display:none`, the layout pass *filters it out* and never zeroes its `ext.layout`, so
-    it keeps a **stale non-zero rect** (mod.rs even comments "display:none has layout=default zero" —
-    only true for never-laid-out nodes). The body masks it (cells rebuilt each frame, fresh 0×0); the
-    persistent headers exposed it. Fix: zero a display:none element's rect (+ subtree) during layout.
-  - **`PAINT-RELATIVE-ABSPOS-DOUBLE` (rdom, found M7).** A `position: relative` flex item with an
-    absolute-positioned child that is created then dropped (the old dropdown) leaves the relative
-    element's glyph painting **twice** under a flex row (once at its slot, once at a hidden sibling's
-    stale rect) under incremental cascade. Reproduced; not yet minimized in rdom. **Worked around** in
-    M7 by keeping the chip static + anchoring the overlay to the root. Both bugs want a real
-    substrate fix + release; recorded here so the next rdom cycle can pick them up.
+  - **`LAYOUT-DISPLAY-NONE-STALE-RECT` — FIXED in rdom-tui 0.3.7.** A persistent flex/block child going
+    `visible → display:none` kept a stale rect (the layout filter dropped it without zeroing).
+    `layout_node` now collapses every display:none child subtree's geometry. (Found M7.)
+  - **`PAINT-RELATIVE-ABSPOS-DOUBLE` — FIXED in rdom-tui 0.3.7.** Root cause was a stale
+    `anonymous_blocks` (a pure-text-leaf carve-out set `inline_layout` but never cleared the anon
+    boxes), so the chip glyph echoed at its previous slot — NOT the relative position itself.
+    `layout_children` now clears `anonymous_blocks` at the top. The duplicate-glyph repro was verified
+    end-to-end against the relative-chip code; the workaround was reverted to self-contained anchoring
+    (above). (Found M7.)
 - Side-loaded data sources; persistence callbacks (sort/order/widths/hidden).
 
 ## Review gates

@@ -206,10 +206,28 @@ web's spacer technique + the standard `scrollTop` accessor).
 - Tests: +2 model (set/query, follows reorder) and +2 render (`render_sort.rs`: marked + not painted
   + un-hides; cursor skips). `examples/scroll_table.rs`: **`x`** toggles-hide the cursor's column.
 
+## Shipped — column resize (M6) + rdom-tui 0.3.6
+
+The substrate-ask turned out to be a substrate *bug*: `size_columns` overwrote author widths. Fixed
+upstream (`TABLE-COLSYNC-1`, rdom-tui 0.3.6 — `size_columns` respects explicit widths, writes the
+used width to a layout field not `inline_style`), so resize is now a clean consumer feature with no
+ad-hoc fighting.
+
+- Bumped `rdom-tui = "0.3.6"`. The view already calls `size_columns` in `show_window`, so it picks
+  up the de-conflated behavior for free.
+- `VirtualTableView::set_column_width(dom, col, Some(w) | None)` — sets the header's explicit width
+  (the substrate respects it + propagates to the column); `None` returns to content-auto. Persists
+  across window changes (the header `<th>` isn't re-materialized). `column_width(dom, col)` reads the
+  current used width (for relative resize).
+- **`Column::with_width` now works** (was dead — `size_columns` used to overwrite it).
+- Tests: +2 render (`set_column_width` resizes + sticks across a re-render; `Column::with_width`
+  respected). `examples/scroll_table.rs`: **`+` / `-`** resize the cursor's column.
+
 ## Roadmap (not yet done)
 
-- **Column ops (remaining):** column *resize* needs custom layout → an rdom substrate ask.
-  (Sort + reorder + hide/show shipped.)
+- **Column ops:** all shipped (sort / reorder / hide-show / resize). Future: the full Table
+  Formatting Context (`display:table`, anonymous boxes, auto algorithm, colspan/rowspan,
+  percentage/CSS-rule widths) is rdom's `TABLE-TFC-1` roadmap item, not needed here.
 - **Substrate-friction backlog (promote to rdom when hit):**
   - `table::size_columns` ignores generated `::before`/`::after` content width and runs pre-cascade —
     so a CSS `::after` sort glyph is clipped (we render the glyph as header text instead). Once it

@@ -2,7 +2,7 @@
 //! the header sort indicator. A child module of `virtual_table`, so it reaches
 //! the view's private fields while keeping the impl off the core view file.
 
-use rdom_tui::TuiDom;
+use rdom_tui::{Size, TuiDom, TuiNodeMutExt};
 
 use super::VirtualTableView;
 use crate::model::{SortDir, VirtualTable};
@@ -83,6 +83,29 @@ impl VirtualTableView {
         }
         // Re-materialize so the body cells pick up (or drop) the attribute.
         self.refresh(dom);
+    }
+
+    /// Set column `col` to an explicit `width` (its cells clip/wrap to it), or
+    /// `None` to return it to content-auto sizing. Built on rdom-tui ≥ 0.3.6's
+    /// `TABLE-COLSYNC-1`: the column builtin **respects** an explicit width set
+    /// on the header and propagates it to the whole column, so this is the
+    /// clean way to resize — no fighting `size_columns`. The width persists
+    /// across window changes (the header `<th>` isn't re-materialized).
+    pub fn set_column_width(&self, dom: &mut TuiDom, col: usize, width: Option<u16>) {
+        if let Some(&th) = self.header_cells.borrow().get(col) {
+            dom.node_mut(th)
+                .set_width(width.map_or(Size::Auto, Size::Fixed));
+        }
+        self.refresh(dom);
+    }
+
+    /// The column's current *used* width (after content/explicit resolution),
+    /// or `None` before the first layout / for an out-of-range column. Useful
+    /// for relative resize, e.g.
+    /// `set_column_width(col, Some(column_width(dom, col)? + 1))`.
+    pub fn column_width(&self, dom: &TuiDom, col: usize) -> Option<u16> {
+        let th = *self.header_cells.borrow().get(col)?;
+        dom.node(th).ext().and_then(|e| e.table_used_width)
     }
 
     /// Reflect the model's sort state onto the headers: `data-sort="asc|desc"`

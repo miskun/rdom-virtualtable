@@ -88,6 +88,11 @@
 //! `data-vt-hidden` (the default sheet maps that to `display: none`) on its
 //! header + cells, the cursor skips it on horizontal navigation, and the hidden
 //! flag follows the column through reordering.
+//! [`VirtualTableView::set_column_width`] resizes a column to an explicit width
+//! (or `None` for content-auto), read back via
+//! [`column_width`](VirtualTableView::column_width). On rdom-tui ≥ 0.3.6 the
+//! `<table>` builtin respects explicit widths (`TABLE-COLSYNC-1`), so the width
+//! sticks across re-renders — and [`Column::with_width`] now works too.
 //!
 //! ## Native scrollbar (opt-in)
 //!

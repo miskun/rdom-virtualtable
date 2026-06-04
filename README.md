@@ -13,7 +13,7 @@ materializes **only the visible row window**. A dataset of any size renders a bo
 ```toml
 [dependencies]
 rdom-virtualtable = "0.1"
-rdom-tui = "0.3.4"
+rdom-tui = "0.3.6"
 ```
 
 ## Try it
@@ -132,6 +132,10 @@ indicator stays on the moved column. (Like sort, it clears the selection.)
 sheet maps that to `display: none`) on its header + cells, the cursor skips it on horizontal
 navigation, and the hidden flag follows the column through reordering.
 
+`set_column_width(dom, col, Some(w))` resizes a column to an explicit width (`None` returns it to
+content-auto); `column_width(dom, col)` reads the current used width. On rdom-tui ≥ 0.3.6 the table
+respects explicit widths, so it sticks across re-renders — and `Column::with_width` works.
+
 ## Scrollbar
 
 ```rust,ignore
@@ -165,12 +169,12 @@ Shipped:
   Ctrl-A / Esc; `data-selected` CSS contract + query API.
 - **Sort** — `sort` / `toggle_sort` with a numeric-aware default comparator and a custom-comparator
   hook; `data-sort` header contract + a ▲/▼ glyph.
-- **Column reorder + hide/show** — `move_column` and `set_column_hidden`; cursor + sort indicator
-  follow, cursor skips hidden columns.
+- **Column reorder / hide-show / resize** — `move_column`, `set_column_hidden`, `set_column_width`
+  (+ `Column::with_width`); cursor + sort indicator follow, cursor skips hidden columns.
 - **Native scrollbar** — opt-in `enable_scrollbar`; proportional thumb (spacer rows), decoupled
   wheel/drag, cursor-follows-on-nav. Horizontal scroll via a `Row`-flex `overflow-x` wrapper.
 
-Planned: column resize; side-loaded data sources; persistence. See `STATE.md`.
+Planned: side-loaded data sources; persistence. See `STATE.md`.
 
 ## License
 

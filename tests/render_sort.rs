@@ -316,3 +316,51 @@ fn cursor_skips_a_hidden_column() {
     view.navigate(&mut dom, Nav::Left); // 2 → skip 1 → 0
     assert_eq!(view.cursor().col(), 0, "Left skips it too");
 }
+
+#[test]
+fn set_column_width_resizes_a_column_and_it_sticks() {
+    let view = view_with(&[&["short", "x"]], 2);
+    let mut dom = TuiDom::new();
+    let _table = mounted(&view, &mut dom, 8);
+
+    view.set_column_width(&mut dom, 0, Some(12));
+    assert_eq!(
+        view.column_width(&dom, 0),
+        Some(12),
+        "explicit width is the used width"
+    );
+
+    // A re-render (here: a sort) must NOT overwrite the explicit width with
+    // content — the TABLE-COLSYNC-1 contract.
+    view.sort(&mut dom, 0, SortDir::Ascending);
+    assert_eq!(
+        view.column_width(&dom, 0),
+        Some(12),
+        "explicit width survives re-render"
+    );
+
+    // None returns the column to content-auto sizing.
+    view.set_column_width(&mut dom, 0, None);
+    assert_ne!(
+        view.column_width(&dom, 0),
+        Some(12),
+        "None → back to content-auto"
+    );
+}
+
+#[test]
+fn column_with_explicit_width_is_respected() {
+    // `Column::with_width` was dead before TABLE-COLSYNC-1 (size_columns
+    // overwrote it with content width). On rdom-tui ≥ 0.3.6 it sticks.
+    let mut model = VirtualTable::new(vec![Column::new("c0").with_width(15), Column::new("c1")]);
+    model.set_rows(vec![vec!["hi".into(), "x".into()]]);
+    let view = VirtualTableView::new(model);
+    let mut dom = TuiDom::new();
+    let _table = mounted(&view, &mut dom, 8);
+
+    assert_eq!(
+        view.column_width(&dom, 0),
+        Some(15),
+        "Column::with_width is respected, not measured back to content"
+    );
+}

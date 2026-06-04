@@ -45,7 +45,7 @@ fn flex_col() -> TuiStyle {
 fn title_str(row: usize, col: usize) -> String {
     format!(
         "row {row} · col {col} / {ROWS}  ·  ↑↓←→ move · Shift+↑↓←→ select · Space toggle · \
-         s sort · [ ] move col · x hide col · Ctrl-A all · Esc clear · Ctrl-C quit",
+         s sort · [ ] move · x hide · +/- resize · Ctrl-A all · Esc clear · Ctrl-C quit",
     )
 }
 
@@ -125,6 +125,14 @@ fn main() -> io::Result<()> {
             "x" => {
                 let hidden = vs.with(|t| t.is_column_hidden(col));
                 vs.set_column_hidden(ctx.dom, col, !hidden);
+            }
+            "+" | "=" => {
+                let w = vs.column_width(ctx.dom, col).unwrap_or(8);
+                vs.set_column_width(ctx.dom, col, Some(w.saturating_add(1)));
+            }
+            "-" => {
+                let w = vs.column_width(ctx.dom, col).unwrap_or(8);
+                vs.set_column_width(ctx.dom, col, Some(w.saturating_sub(1).max(1)));
             }
             _ => return,
         }

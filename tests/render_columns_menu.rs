@@ -5,11 +5,16 @@
 //! opens a floating dropdown listing the hidden columns. Clicking an entry
 //! brings that column back.
 
-use rdom_tui::layout::{Length, Position};
-use rdom_tui::render::{Buffer, LayoutExt, PaintExt, Rect};
+use rdom_tui::layout::Position;
+use rdom_tui::render::{Buffer, LayoutExt, PaintExt, Rect, Terminal, TestBackend};
 use rdom_tui::style::CascadeExt;
-use rdom_tui::{Color, NodeId, TuiDispatchExt, TuiDom, TuiEvent, TuiNodeExt, Value};
-use rdom_virtualtable::{Column, VirtualTable, VirtualTableView, highlight_stylesheet};
+use rdom_tui::{
+    App, Color, Direction, Display, Flow, NodeId, Padding, Size, TuiDispatchExt, TuiDom, TuiEvent,
+    TuiNodeExt, TuiNodeMutExt, TuiStyle, Value,
+};
+use rdom_virtualtable::{
+    Column, SelectionMode, VirtualTable, VirtualTableView, highlight_stylesheet,
+};
 
 const VISIBLE: usize = 5;
 
@@ -138,7 +143,7 @@ fn chip_is_not_a_model_column() {
 #[test]
 fn opening_the_menu_lists_the_hidden_columns() {
     let view = grid(3);
-    let (mut dom, table) = mounted(&view);
+    let (mut dom, _table) = mounted(&view);
     view.set_column_hidden(&mut dom, 2, true);
     view.set_column_hidden(&mut dom, 0, true);
 
@@ -146,13 +151,18 @@ fn opening_the_menu_lists_the_hidden_columns() {
     view.toggle_column_menu(&mut dom);
     assert!(view.is_column_menu_open());
 
-    let menu = find_attr(&dom, table, "data-vt-menu").expect("menu overlay");
-    // Anchored under the chip → child of the chip, floating.
-    let chip = find_attr(&dom, table, "data-vt-overflow").unwrap();
-    assert_eq!(dom.node(menu).parent_node().unwrap().id(), chip);
+    let menu = find_attr(&dom, dom.root(), "data-vt-menu").expect("menu overlay");
+    // A viewport overlay anchored to the root (NOT a child of the chip — a
+    // positioned chip ancestor double-painted under the flex header row).
+    assert_eq!(dom.node(menu).parent_node().unwrap().id(), dom.root());
     let s = dom.node(menu).inline_style().expect("menu is styled");
     assert_eq!(s.position, Some(Value::Specified(Position::Absolute)));
-    assert_eq!(s.top, Some(Value::Specified(Length::Cells(1))));
+    // top/left are anchored from the chip's measured rect (exact values are
+    // layout-dependent); the contract is that they're set + it floats.
+    assert!(
+        s.top.is_some() && s.left.is_some(),
+        "anchored from the chip rect"
+    );
     assert!(s.z_index.is_some(), "menu floats above the body");
 
     // One item per hidden column, sorted by index, labelled + tagged.
@@ -176,7 +186,7 @@ fn toggle_closes_an_open_menu() {
     view.toggle_column_menu(&mut dom);
     assert!(!view.is_column_menu_open());
     assert!(
-        find_attr(&dom, table, "data-vt-menu").is_none(),
+        find_attr(&dom, dom.root(), "data-vt-menu").is_none(),
         "overlay removed on close"
     );
     // The chip survives a menu close (still a hidden column).
@@ -186,7 +196,7 @@ fn toggle_closes_an_open_menu() {
 #[test]
 fn unhiding_from_the_menu_updates_it_and_drops_the_entry() {
     let view = grid(3);
-    let (mut dom, table) = mounted(&view);
+    let (mut dom, _table) = mounted(&view);
     view.set_column_hidden(&mut dom, 0, true);
     view.set_column_hidden(&mut dom, 2, true);
     view.toggle_column_menu(&mut dom);
@@ -199,7 +209,7 @@ fn unhiding_from_the_menu_updates_it_and_drops_the_entry() {
         view.is_column_menu_open(),
         "menu stays open while >0 hidden"
     );
-    let menu = find_attr(&dom, table, "data-vt-menu").unwrap();
+    let menu = find_attr(&dom, dom.root(), "data-vt-menu").unwrap();
     let mut items = Vec::new();
     find_all(&dom, menu, "data-vt-menu-item", &mut items);
     assert_eq!(items.len(), 1, "only the still-hidden column remains");
@@ -220,7 +230,7 @@ fn unhiding_the_last_column_closes_the_menu_and_removes_the_chip() {
         !view.is_column_menu_open(),
         "menu closes with nothing hidden"
     );
-    assert!(find_attr(&dom, table, "data-vt-menu").is_none());
+    assert!(find_attr(&dom, dom.root(), "data-vt-menu").is_none());
     assert!(find_attr(&dom, table, "data-vt-overflow").is_none());
 }
 
@@ -231,10 +241,14 @@ fn the_dropdown_paints_over_the_body() {
     let view = grid(3);
     let (mut dom, _table) = mounted(&view);
     view.set_column_hidden(&mut dom, 1, true);
-    view.toggle_column_menu(&mut dom);
 
     let vp = Rect::new(0, 0, 40, 12);
     let sheet = highlight_stylesheet();
+    // Lay out first so the chip has a real rect, THEN open the menu (it anchors
+    // off the chip's measured position — exactly the runtime order).
+    dom.cascade(&sheet);
+    dom.layout_dom(vp);
+    view.toggle_column_menu(&mut dom);
     dom.cascade(&sheet);
     dom.layout_dom(vp);
     let mut buf = Buffer::empty(vp);
@@ -288,7 +302,7 @@ fn clicking_a_menu_item_unhides_that_column() {
     let (mut dom, table) = mounted(&view);
     view.set_column_hidden(&mut dom, 1, true);
     view.toggle_column_menu(&mut dom);
-    let menu = find_attr(&dom, table, "data-vt-menu").unwrap();
+    let menu = find_attr(&dom, dom.root(), "data-vt-menu").unwrap();
     let mut items = Vec::new();
     find_all(&dom, menu, "data-vt-menu-item", &mut items);
 
@@ -325,6 +339,88 @@ fn close_column_menu_keeps_the_chip() {
     view.close_column_menu(&mut dom);
 
     assert!(!view.is_column_menu_open());
-    assert!(find_attr(&dom, table, "data-vt-menu").is_none());
+    assert!(find_attr(&dom, dom.root(), "data-vt-menu").is_none());
     assert!(find_attr(&dom, table, "data-vt-overflow").is_some());
+}
+
+/// Regression (the reported bug): hide a column, open+close the dropdown on
+/// another column, then hide it too — under the App's *incremental* cascade
+/// (a full re-cascade hid the bug), in the example's nested-flex layout. The
+/// chip glyph must paint exactly **once**, not echo at every hidden column's
+/// stale header slot. Root cause was a `position: relative` chip with an
+/// absolute-positioned dropdown child painting twice under the flex header row;
+/// the fix anchors the overlay to the root instead.
+#[test]
+fn chip_glyph_paints_once_after_hide_menu_hide() {
+    fn flex_col() -> TuiStyle {
+        let mut s = TuiStyle::new().direction(Direction::Column);
+        s.display = Some(Value::Specified(Display::Block));
+        s.flow = Some(Value::Specified(Flow::Flex));
+        s
+    }
+    let view = {
+        let mut m = VirtualTable::new(vec![
+            Column::new("id"),
+            Column::new("name"),
+            Column::new("status"),
+        ]);
+        m.set_rows(
+            (0..50)
+                .map(|i| vec![format!("{i:04}"), format!("item-{i}"), "ok".into()])
+                .collect(),
+        );
+        VirtualTableView::new(m)
+    };
+    let mut dom = TuiDom::new();
+    let root = dom.root();
+    dom.node_mut(root).set_inline_style(flex_col());
+    let container = dom.create_element("div");
+    dom.node_mut(container).set_inline_style(
+        flex_col()
+            .width(Size::Flex(1))
+            .height(Size::Flex(1))
+            .padding(Padding::all(1)),
+    );
+    dom.append_child(root, container).unwrap();
+    let table = view.mount(&mut dom);
+    dom.node_mut(table).set_attribute("tabindex", "0").ok();
+    dom.append_child(container, table).unwrap();
+    view.show_window(&mut dom, 0, 14);
+    view.install_nav(&mut dom, table, 14);
+    view.enable_scrollbar(&mut dom);
+    view.set_selection_mode(SelectionMode::Cell);
+    dom.set_focused(Some(table));
+
+    let term = Terminal::new(TestBackend::new(80, 20)).unwrap();
+    let mut app = App::with_backend(dom, highlight_stylesheet(), term).unwrap();
+    app.draw_if_dirty().unwrap();
+    // hide status (col 2)
+    view.set_column_hidden(app.dom_mut(), 2, true);
+    app.draw_if_dirty().unwrap();
+    // on name (col 1): open + close the dropdown, then hide it
+    view.toggle_column_menu(app.dom_mut());
+    app.draw_if_dirty().unwrap();
+    view.toggle_column_menu(app.dom_mut());
+    app.draw_if_dirty().unwrap();
+    view.set_column_hidden(app.dom_mut(), 1, true);
+    app.draw_if_dirty().unwrap();
+
+    // Paint the App's (incremental-cascade) DOM and count the chip glyph.
+    let vp = Rect::new(0, 0, 80, 20);
+    let dom = app.dom_mut();
+    dom.layout_dom(vp);
+    let mut buf = Buffer::empty(vp);
+    dom.paint_dom(&mut buf, vp);
+    let mut glyphs = 0;
+    for y in 0..vp.height {
+        for x in 0..vp.width {
+            if buf.cell(x, y).map(|c| c.symbol()) == Some("…") {
+                glyphs += 1;
+            }
+        }
+    }
+    assert_eq!(
+        glyphs, 1,
+        "exactly one '…' chip glyph on screen, got {glyphs}"
+    );
 }

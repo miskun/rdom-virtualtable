@@ -233,14 +233,23 @@ Hiding is one-way at the cursor (it correctly *skips* hidden columns), so the re
 header affordance, built purely on the substrate's public API — no rdom change.
 
 - **Overflow chip** — a trailing `<th data-vt-overflow>` ("…") appended to the persistent header
-  `<tr>`, present iff ≥1 column is hidden, `position: relative` + narrow fixed width. It is **not a
-  model column**: invisible to `columns()`, sort, width sync, and the cursor (`header_cells` tracks
-  only model columns). `size_columns` tolerates the ragged trailing header cell.
+  `<tr>`, present iff ≥1 column is hidden, a plain **static** cell with a narrow fixed width. It is
+  **not a model column**: invisible to `columns()`, sort, width sync, and the cursor (`header_cells`
+  tracks only model columns). `size_columns` tolerates the ragged trailing header cell.
 - **Floating dropdown** — `toggle_column_menu` / `open_column_menu` / `close_column_menu` /
-  `is_column_menu_open`. A `<div data-vt-menu>` child of the chip, `position: absolute; top: 1;
-  right: 0; z-index: 1000`, opaque bg, sized to its rows (absolute `width:auto` collapses to zero, so
-  width/height are explicit). One `<div data-vt-menu-item data-vt-col=N>` per hidden column; the
-  paint pass's `(z_index, doc_order)` sort lifts it over the body (proven by a paint test).
+  `is_column_menu_open`. A `<div data-vt-menu>` **child of the root** (a viewport overlay layer),
+  `position: absolute; z-index: 1000`, opaque bg, sized to its rows (absolute `width:auto` collapses
+  to zero, so width/height are explicit). Its `top`/`left` are anchored from the **chip's measured
+  layout rect** (read at open time — the chip is laid out by then). One `<div data-vt-menu-item
+  data-vt-col=N>` per hidden column; the paint pass's `(z_index, doc_order)` sort lifts it over the
+  body (proven by a paint test).
+- **Bug fixed (duplicate "…")** — the first cut made the chip `position: relative` and parented the
+  absolute dropdown *under* it. Under the App's *incremental* cascade, after open+close the chip's
+  glyph echoed at every hidden column's stale header slot (`… … …`). Two substrate bugs collided
+  (recorded as friction below); the fix sidesteps both by keeping the chip static and anchoring the
+  overlay to the **root** off the chip's measured rect. Regression test
+  `chip_glyph_paints_once_after_hide_menu_hide` reproduces via a real `App` + `TestBackend` and
+  asserts a single glyph.
 - **Interaction** — one root-level delegated `click` listener (the a_href/details bubble pattern, so
   reconciling the chip/menu mid-dispatch is safe): chip click toggles, item click unhides (which
   reconciles the menu/chip), outside click dismisses. **Esc** closes it first in `install_nav`.
@@ -263,6 +272,17 @@ header affordance, built purely on the substrate's public API — no rdom change
     column-width signature so resized cells re-cascade; the `data-vt-rev` hack was removed.
   - **Scrollbar spacer (total-row extent) + horizontal scroll — DONE** (above) on the existing scroll
     substrate, no new rdom API. Column *resize-by-width* still needs custom layout → substrate ask.
+  - **`LAYOUT-DISPLAY-NONE-STALE-RECT` (rdom, found M7).** When a persistent flex/block child goes
+    `visible → display:none`, the layout pass *filters it out* and never zeroes its `ext.layout`, so
+    it keeps a **stale non-zero rect** (mod.rs even comments "display:none has layout=default zero" —
+    only true for never-laid-out nodes). The body masks it (cells rebuilt each frame, fresh 0×0); the
+    persistent headers exposed it. Fix: zero a display:none element's rect (+ subtree) during layout.
+  - **`PAINT-RELATIVE-ABSPOS-DOUBLE` (rdom, found M7).** A `position: relative` flex item with an
+    absolute-positioned child that is created then dropped (the old dropdown) leaves the relative
+    element's glyph painting **twice** under a flex row (once at its slot, once at a hidden sibling's
+    stale rect) under incremental cascade. Reproduced; not yet minimized in rdom. **Worked around** in
+    M7 by keeping the chip static + anchoring the overlay to the root. Both bugs want a real
+    substrate fix + release; recorded here so the next rdom cycle can pick them up.
 - Side-loaded data sources; persistence callbacks (sort/order/widths/hidden).
 
 ## Review gates

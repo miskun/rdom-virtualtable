@@ -66,8 +66,10 @@ impl VirtualTableView {
         self.cursor.set(cur.at(cur.row(), new_col, rows, cols));
         self.selection.borrow_mut().clear();
         // Headers persist across `show_window`, so re-sync their labels/glyph
-        // to the new order *before* refresh (so `size_columns` measures right).
+        // AND their widths to the new column order *before* refresh (so a
+        // resized width follows its column and `size_columns` measures right).
         self.apply_sort_indicator(dom);
+        self.sync_header_widths(dom);
         self.refresh(dom);
     }
 
@@ -86,17 +88,34 @@ impl VirtualTableView {
     }
 
     /// Set column `col` to an explicit `width` (its cells clip/wrap to it), or
-    /// `None` to return it to content-auto sizing. Built on rdom-tui ≥ 0.3.6's
-    /// `TABLE-COLSYNC-1`: the column builtin **respects** an explicit width set
-    /// on the header and propagates it to the whole column, so this is the
-    /// clean way to resize — no fighting `size_columns`. The width persists
-    /// across window changes (the header `<th>` isn't re-materialized).
+    /// `None` to return it to content-auto sizing. The width is stored on the
+    /// **model** (`Column::width`), so it **follows the column through a
+    /// reorder** — then applied to the header `<th>` as an inline width, which
+    /// rdom-tui ≥ 0.3.6 (`TABLE-COLSYNC-1`) respects and propagates to the whole
+    /// column. Persists across window changes (the header isn't re-materialized).
     pub fn set_column_width(&self, dom: &mut TuiDom, col: usize, width: Option<u16>) {
-        if let Some(&th) = self.header_cells.borrow().get(col) {
-            dom.node_mut(th)
-                .set_width(width.map_or(Size::Auto, Size::Fixed));
-        }
+        self.inner.borrow_mut().set_column_width(col, width);
+        self.sync_header_widths(dom);
         self.refresh(dom);
+    }
+
+    /// Apply each column's model width (`Column::width`) to its header `<th>`'s
+    /// inline width — the source `size_columns` reads. Re-run after a resize or
+    /// reorder so a width tracks its column (the model permutes; the `<th>`
+    /// nodes don't move, so their widths must be re-applied from the model).
+    fn sync_header_widths(&self, dom: &mut TuiDom) {
+        let widths: Vec<Option<u16>> = self
+            .inner
+            .borrow()
+            .columns()
+            .iter()
+            .map(|c| c.width)
+            .collect();
+        for (c, &th) in self.header_cells.borrow().iter().enumerate() {
+            let w = widths.get(c).copied().flatten();
+            dom.node_mut(th)
+                .set_width(w.map_or(Size::Auto, Size::Fixed));
+        }
     }
 
     /// The column's current *used* width (after content/explicit resolution),

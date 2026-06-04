@@ -364,3 +364,25 @@ fn column_with_explicit_width_is_respected() {
         "Column::with_width is respected, not measured back to content"
     );
 }
+
+#[test]
+fn column_width_follows_the_column_through_reorder() {
+    let view = view_with(&[&["a", "nameval", "c"]], 3); // headers c0 / c1 / c2
+    let mut dom = TuiDom::new();
+    let _table = mounted(&view, &mut dom, 8);
+
+    view.set_column_width(&mut dom, 1, Some(20)); // resize the middle column
+    assert_eq!(view.column_width(&dom, 1), Some(20));
+
+    view.move_column(&mut dom, 1, 0); // move it to the front — width must follow
+    assert_eq!(
+        view.column_width(&dom, 0),
+        Some(20),
+        "width follows the moved column"
+    );
+    assert_ne!(
+        view.column_width(&dom, 1),
+        Some(20),
+        "old position is no longer the resized column"
+    );
+}

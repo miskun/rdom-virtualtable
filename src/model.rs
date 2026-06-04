@@ -126,6 +126,15 @@ impl VirtualTable {
         self.hidden.contains(&col)
     }
 
+    /// Set (or clear, with `None`) the explicit width of column `col`. Stored on
+    /// the [`Column`], so it **follows the column through a reorder** (unlike a
+    /// position-bound DOM width). No-op for out-of-range `col`.
+    pub fn set_column_width(&mut self, col: usize, width: Option<u16>) {
+        if let Some(c) = self.columns.get_mut(col) {
+            c.width = width;
+        }
+    }
+
     /// Sort the rows by `col` using the [`default_cell_cmp`] comparator
     /// (numeric-aware, else lexicographic). Stable: equal keys keep their
     /// prior order. Records the sort so [`sort_state`](Self::sort_state)
@@ -375,5 +384,15 @@ mod tests {
         t.move_column(0, 2); // a → index 2, so its hidden flag follows
         assert!(t.is_column_hidden(2), "hidden index follows its column");
         assert!(!t.is_column_hidden(0));
+    }
+
+    #[test]
+    fn column_width_follows_a_reorder() {
+        let mut t = VirtualTable::new(vec![Column::new("a"), Column::new("b"), Column::new("c")]);
+        t.set_column_width(1, Some(20)); // resize column b (index 1)
+        assert_eq!(t.columns()[1].width, Some(20));
+        t.move_column(1, 0); // b → front; its width travels with the Column
+        assert_eq!(t.columns()[0].width, Some(20), "width follows the column");
+        assert_eq!(t.columns()[1].width, None);
     }
 }

@@ -189,9 +189,13 @@ impl VirtualTableView {
         let _ = dom.set_attribute(menu, MENU_ATTR, "");
         dom.append_child(chip, menu).unwrap();
         self.column_menu.set(Some(menu));
-        // Mark the chip active so the default sheet highlights it as the
-        // panel's tab while open.
+        // Mark the chip active (highlighted as the panel's tab) AND the table
+        // (the default sheet suppresses the cursor cross-hair + selection while
+        // a dropdown is open, so focus rests on the chooser).
         let _ = dom.set_attribute(chip, MENU_OPEN_ATTR, "");
+        if let Some(table) = self.table.get() {
+            let _ = dom.set_attribute(table, MENU_OPEN_ATTR, "");
+        }
         // Keyboard focus starts on the first row.
         self.menu_cursor.set(0);
         self.rebuild_menu_items(dom);
@@ -205,6 +209,9 @@ impl VirtualTableView {
         }
         if let Some(chip) = self.overflow_chip.get() {
             let _ = dom.remove_attribute(chip, MENU_OPEN_ATTR);
+        }
+        if let Some(table) = self.table.get() {
+            let _ = dom.remove_attribute(table, MENU_OPEN_ATTR);
         }
     }
 

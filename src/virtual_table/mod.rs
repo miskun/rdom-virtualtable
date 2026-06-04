@@ -632,6 +632,11 @@ fn set_flag(dom: &mut TuiDom, id: NodeId, attr: &str, on: bool) {
 /// `:where()` changes specificity, not matching). That makes these true
 /// *defaults*: any author rule of any specificity overrides them, exactly like
 /// overriding a browser UA style. Requires rdom-tui ≥ 0.3.4.
+///
+/// The cursor/selection rules are also gated on
+/// **`table:focus:not([data-vt-menu-open])`** — while the column chooser is open
+/// the view stamps `data-vt-menu-open` on the `<table>`, so the cross-hair +
+/// selection step aside and focus rests on the dropdown.
 pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
     // #181a1c — shared row/column tint.
     let line = Color::Rgb(0x18, 0x1a, 0x1c);
@@ -650,41 +655,41 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
     let cell_blue = Color::Rgb(0x3a, 0x6e, 0xa5);
     vec![
         (
-            ":where(table:focus tr[data-active-row])",
+            ":where(table:focus:not([data-vt-menu-open]) tr[data-active-row])",
             TuiStyle::new().bg(line),
         ),
         (
-            ":where(table:focus th[data-active-col])",
+            ":where(table:focus:not([data-vt-menu-open]) th[data-active-col])",
             TuiStyle::new().bg(line),
         ),
         (
-            ":where(table:focus td[data-active-col])",
+            ":where(table:focus:not([data-vt-menu-open]) td[data-active-col])",
             TuiStyle::new().bg(line),
         ),
         (
-            ":where(table:focus td[data-selected])",
+            ":where(table:focus:not([data-vt-menu-open]) td[data-selected])",
             TuiStyle::new().bg(selected),
         ),
         // Selection ∩ row/column highlight → the blend (listed after the plain
         // selection so it wins on the intersection; all rules are equal
         // zero-specificity `:where()`, so source order decides).
         (
-            ":where(table:focus td[data-selected][data-active-col])",
+            ":where(table:focus:not([data-vt-menu-open]) td[data-selected][data-active-col])",
             TuiStyle::new().bg(selected_line),
         ),
         (
-            ":where(table:focus tr[data-active-row] td[data-selected])",
+            ":where(table:focus:not([data-vt-menu-open]) tr[data-active-row] td[data-selected])",
             TuiStyle::new().bg(selected_line),
         ),
         // The cursor cell wins last, so it stays visible inside a selection.
         // Gray normally; a brighter blue when the cursor cell is itself
         // selected (it sits in the blue field, so blue fits).
         (
-            ":where(table:focus td[data-active-cell])",
+            ":where(table:focus:not([data-vt-menu-open]) td[data-active-cell])",
             TuiStyle::new().bg(cell_gray),
         ),
         (
-            ":where(table:focus td[data-active-cell][data-selected])",
+            ":where(table:focus:not([data-vt-menu-open]) td[data-active-cell][data-selected])",
             TuiStyle::new().bg(cell_blue),
         ),
         // Focused-scroll affordance (rdom `FOCUS-VOCAB-1`): a focused scroll

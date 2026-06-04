@@ -9,7 +9,7 @@ use rdom_tui::layout::{Length, Position};
 use rdom_tui::render::{Buffer, LayoutExt, PaintExt, Rect, Terminal, TestBackend};
 use rdom_tui::style::CascadeExt;
 use rdom_tui::{App, Color, NodeId, Padding, TuiDispatchExt, TuiDom, TuiEvent, TuiNodeExt, Value};
-use rdom_virtualtable::{Column, VirtualTable, VirtualTableView, highlight_stylesheet};
+use rdom_virtualtable::{Column, Nav, VirtualTable, VirtualTableView, highlight_stylesheet};
 
 const VISIBLE: usize = 5;
 
@@ -232,6 +232,50 @@ fn rows_render_on_one_line_with_a_visible_highlight_bar() {
     // The highlighted row (cursor moved to row 1) paints a bg bar; the others don't.
     assert!(hl1 > 0, "highlighted row paints a bar");
     assert_eq!(line(1).1, 0, "non-highlighted row has no bar");
+}
+
+#[test]
+fn open_chooser_suppresses_the_cursor_crosshair() {
+    // With the chooser open, the table's cursor cross-hair + selection should
+    // step aside so focus rests on the dropdown.
+    let view = grid(3);
+    let (mut dom, table) = mounted(&view);
+    dom.node_mut(table).set_attribute("tabindex", "0").ok();
+    dom.set_focused(Some(table));
+    view.set_viewport_rows(VISIBLE as u16);
+    view.navigate(&mut dom, Nav::Down); // cursor active at row 1
+
+    let vp = Rect::new(0, 0, 40, 12);
+    let sheet = highlight_stylesheet();
+    let tint = Color::Rgb(0x18, 0x1a, 0x1c); // active row/column tint
+    let count_tint = |dom: &mut TuiDom| {
+        dom.cascade(&sheet);
+        dom.layout_dom(vp);
+        let mut buf = Buffer::empty(vp);
+        dom.paint_dom(&mut buf, vp);
+        let mut n = 0;
+        for y in 0..vp.height {
+            for x in 0..vp.width {
+                if buf.cell(x, y).map(|c| c.bg) == Some(tint) {
+                    n += 1;
+                }
+            }
+        }
+        n
+    };
+
+    assert!(
+        count_tint(&mut dom) > 0,
+        "cross-hair paints while focused + closed"
+    );
+    view.toggle_column_menu(&mut dom);
+    assert_eq!(
+        count_tint(&mut dom),
+        0,
+        "cross-hair suppressed while the chooser is open"
+    );
+    view.toggle_column_menu(&mut dom); // close
+    assert!(count_tint(&mut dom) > 0, "cross-hair returns after close");
 }
 
 // ── Keyboard navigation ─────────────────────────────────────────────

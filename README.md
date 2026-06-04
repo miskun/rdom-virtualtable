@@ -145,7 +145,8 @@ reaches outside the table subtree, so it drops into any layout.
 While open the chooser **owns the keyboard** (modal, via `install_nav`): **↑ / ↓** (or `k` / `j`)
 move the highlight, **Enter / Space** toggle the highlighted column, **Esc** closes — and the table
 cursor is **frozen** so arrows don't leak to the cells behind it. It also dismisses on an **outside
-click**. Mouse toggling is the native checkbox (the `<label>` forwards the click); a `change`
+click**. The table's cursor cross-hair + selection **step aside** while it's open (the default sheet
+gates them on `:not([data-vt-menu-open])`), so focus rests on the chooser. Mouse toggling is the native checkbox (the `<label>` forwards the click); a `change`
 listener reconciles the model. The highlighted row carries **`data-vt-menu-active`** and the open
 chip **`data-vt-menu-open`** (filled with the panel's background so it reads as the panel's tab) —
 restyle via those selectors. The chip is a header affordance, not a model column — it never affects

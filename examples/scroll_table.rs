@@ -45,7 +45,7 @@ fn flex_col() -> TuiStyle {
 fn title_str(row: usize, col: usize) -> String {
     format!(
         "row {row} · col {col} / {ROWS}  ·  ↑↓←→ move · Shift+↑↓←→ select · Space toggle · \
-         s sort · [ ] move · x hide · +/- resize · Ctrl-A all · Esc clear · Ctrl-C quit",
+         s sort · < > move · x hide · +/- resize · Ctrl-A all · Esc clear · Ctrl-C quit",
     )
 }
 
@@ -108,9 +108,10 @@ fn main() -> io::Result<()> {
     view.set_selection_mode(SelectionMode::Cell);
     dom.set_focused(Some(table));
 
-    // `s` sorts the cursor's column (toggles asc⇄desc); `[` / `]` move the
-    // cursor's column left / right. `install_nav` leaves these keys unhandled,
-    // so this listener picks them up.
+    // `s` sorts the cursor's column (toggles asc⇄desc); `<` / `>` move the
+    // cursor's column left / right (one key ± Shift — friendlier than `[`/`]`,
+    // which need AltGr on many non-US layouts). `install_nav` leaves these keys
+    // unhandled, so this listener picks them up.
     let vs = view.clone();
     dom.add_event_listener(table, "keydown", ListenerOptions::default(), move |ctx| {
         let Some(kbd) = ctx.event.detail.as_keyboard() else {
@@ -120,8 +121,8 @@ fn main() -> io::Result<()> {
         let cols = vs.with(|t| t.columns().len());
         match kbd.key.as_str() {
             "s" => vs.toggle_sort(ctx.dom, col),
-            "[" if col > 0 => vs.move_column(ctx.dom, col, col - 1),
-            "]" if col + 1 < cols => vs.move_column(ctx.dom, col, col + 1),
+            "<" if col > 0 => vs.move_column(ctx.dom, col, col - 1),
+            ">" if col + 1 < cols => vs.move_column(ctx.dom, col, col + 1),
             "x" => {
                 let hidden = vs.with(|t| t.is_column_hidden(col));
                 vs.set_column_hidden(ctx.dom, col, !hidden);

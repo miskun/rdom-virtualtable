@@ -13,7 +13,7 @@ readme = "README.md"
 [dependencies]
 # Public rdom-tui surface only (native <table>, element/text builders,
 # column sync). No path dep, no private hooks.
-rdom-tui = "0.3.12"  # 0.3.12+: drag autoscroll + robustness — sticky scroll container (no stall when content scrolls the anchor out / pointer overshoots) + banded edge zone (DRAG-AUTOSCROLL)
+rdom-tui = "0.3.13"  # 0.3.13+: drag autoscroll + robustness — sticky scroll container + banded edge zone + mid-tick cascade so the re-windowed rows are sized before the synthetic move (no column flicker / cropped window) (DRAG-AUTOSCROLL)
 
 [dev-dependencies]
 # Synthesize crossterm MouseEvents for the mouse-interaction tests (must match

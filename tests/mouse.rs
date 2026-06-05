@@ -292,6 +292,89 @@ fn drag_past_the_edge_autoscrolls_and_extends_the_selection() {
 }
 
 #[test]
+fn drag_autoscroll_keeps_a_stable_column_and_an_unclipped_window() {
+    // Regression for the live symptoms (rdom-tui ≤ 0.3.12): dragging a
+    // cell-range past the edge flickered the selected column (the synthetic
+    // autoscroll move resolved col 0 because the re-windowed cells laid out
+    // unsized) and cropped the window top (under-counted scroll extent clamped
+    // scroll_top below window_start). Fixed in rdom-tui 0.3.13 by cascading the
+    // mid-tick relayout. Drag in the NAME column (col 1) and assert the column
+    // stays col 1 (no col-0 bleed) and scroll_top tracks window_start each tick.
+    use rdom_tui::TuiAccessors;
+    let mut model = VirtualTable::new((0..3).map(|c| Column::new(format!("c{c}"))).collect());
+    model.set_rows(
+        (0..40)
+            .map(|r| (0..3).map(|c| format!("r{r}c{c}")).collect())
+            .collect(),
+    );
+    let view = VirtualTableView::new(model);
+    view.set_selection_mode(SelectionMode::Cell);
+
+    let mut dom = TuiDom::new();
+    let table = view.mount(&mut dom);
+    dom.node_mut(table).set_attribute("tabindex", "0").ok();
+    let root = dom.root();
+    dom.append_child(root, table).unwrap();
+    let visible = 6u16;
+    view.show_window(&mut dom, 0, visible as usize);
+    view.install_nav(&mut dom, table, visible);
+    view.install_mouse(&mut dom);
+    view.enable_scrollbar(&mut dom);
+    dom.set_focused(Some(table));
+
+    let term = Terminal::new(TestBackend::new(24, 8)).unwrap();
+    let mut app = App::with_backend(dom, rdom_virtualtable::highlight_stylesheet(), term).unwrap();
+    app.draw_if_dirty().unwrap();
+
+    let me = |kind, x: u16, y: u16| {
+        CtEvent::Mouse(MouseEvent {
+            kind,
+            column: x,
+            row: y,
+            modifiers: KeyModifiers::empty(),
+        })
+    };
+    // x = 10 lands in the NAME column (col 1) of a 24-wide / 3-column table.
+    let col = 1;
+    app.handle_event(me(MouseEventKind::Down(CtButton::Left), 10, 1));
+    app.handle_event(me(MouseEventKind::Drag(CtButton::Left), 10, 7));
+    for _ in 0..6 {
+        app.advance(50).unwrap();
+        // No crop: the materialized window sits flush with the scroll offset.
+        let tbody = first_named(app.dom(), table, "tbody");
+        let st = app.dom().node(tbody).scroll_top().unwrap_or(-1) as usize;
+        assert_eq!(
+            st,
+            view.window_start(),
+            "scroll_top must track window_start (no cropped top)"
+        );
+    }
+
+    let sel = view.selection();
+    // The cursor stayed in the NAME column — no flicker into col 0 / col 2.
+    assert_eq!(view.cursor().col(), col, "cursor column is stable");
+    let selected_in_col1 = (0..40).filter(|&r| sel.is_selected(r, col)).count();
+    assert!(
+        selected_in_col1 > visible as usize,
+        "the NAME-column selection extended past the initial window"
+    );
+    // The rectangle is exactly col 1 — neither id (col 0) nor status (col 2)
+    // bled in from a flickering head column.
+    for r in 0..40 {
+        if sel.is_selected(r, col) {
+            assert!(
+                !sel.is_selected(r, 0),
+                "row {r}: col 0 must not be selected"
+            );
+            assert!(
+                !sel.is_selected(r, 2),
+                "row {r}: col 2 must not be selected"
+            );
+        }
+    }
+}
+
+#[test]
 fn drag_extends_only_while_the_button_is_held() {
     // A mousemove with no button held (buttons bit 0 clear) must not extend.
     let view = grid(3);

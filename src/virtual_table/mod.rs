@@ -322,6 +322,12 @@ impl VirtualTableView {
         self.cursor.get()
     }
 
+    /// The logical index of the first row in the currently materialized window.
+    /// In scroll-mode this tracks the `<tbody>`'s `scroll_top`.
+    pub fn window_start(&self) -> usize {
+        self.window_start.get()
+    }
+
     /// Move the cursor per `nav`, clamped + scrolled into view, and return
     /// `(before, after)`. Caller updates the selection, then calls
     /// [`refresh_after_cursor`](Self::refresh_after_cursor). Returns `None`

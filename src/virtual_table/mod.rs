@@ -29,7 +29,7 @@ use rdom_tui::{
     TuiAccessors, TuiAccessorsMut, TuiDom, TuiNodeExt, TuiNodeMutExt, TuiStyle, Value,
 };
 
-use crate::grid_cursor::{GridCursor, Nav, nav_for_key};
+use crate::grid_cursor::{GridCursor, Nav, nav_for_key, reveal_scroll};
 use crate::model::VirtualTable;
 use crate::selection::{GridSelection, SelectionMode};
 
@@ -339,9 +339,7 @@ impl VirtualTableView {
         }
         let viewport = self.viewport_rows.get() as usize;
         let before = self.cursor.get();
-        let mut after = before
-            .navigate(nav, rows, cols, viewport.max(1))
-            .follow(viewport, rows);
+        let mut after = before.navigate(nav, rows, cols, viewport.max(1));
         // Skip hidden columns on a horizontal move: keep scanning in the move
         // direction for a visible column; if none exists that way, stay put.
         if after.col() != before.col() && self.inner.borrow().is_column_hidden(after.col()) {
@@ -362,41 +360,48 @@ impl VirtualTableView {
         Some((before, after))
     }
 
-    /// Re-materialize the window if the cursor scrolled it, else just re-apply
-    /// the highlight + selection attributes.
+    /// Scroll the cursor into view if its move pushed it off-window, else just
+    /// re-apply the highlight.
+    ///
+    /// **Single scroll authority** (`SCROLL-SINGLE-OWNER-1`): scroll-into-view
+    /// is computed from the *current* window position via [`reveal_scroll`] —
+    /// the `<tbody>`'s `scroll_top` in native-scrollbar mode, `window_start`
+    /// in pure-windowed mode — never from a copy held on the cursor. So:
+    /// - a wheel / drag scroll the cursor didn't drive is honored (the next
+    ///   keyboard move reveals the cursor relative to where the view actually
+    ///   sits, no snap-back to a stale offset); and
+    /// - an autoscroll drag needs **no special-casing** — the drag head stays
+    ///   within the materialized window, so `reveal_scroll` returns the current
+    ///   offset and never writes, leaving the substrate's autoscroll `scroll_top`
+    ///   untouched (this replaces the old `!mouse_drag` guard).
     fn refresh_after_cursor(&self, dom: &mut TuiDom, after: GridCursor) {
-        // Native-scrollbar mode: a single write direction — move the scrollbar
-        // to keep the cursor visible and let the `scroll` listener re-window +
-        // re-highlight. If the cursor stayed within the current window (no
-        // scroll change) the listener won't fire, so re-highlight here.
+        let viewport = self.viewport_rows.get() as usize;
+        let rows = self.with(|t| t.row_count());
+
         if self.scroll_mode.get() {
-            // Single scroll writer: during a pointer drag, the scroll position is
-            // driven by the pointer — and by the substrate's drag-autoscroll once
-            // the pointer reaches the viewport edge (DRAG-AUTOSCROLL). The
-            // cursor-follow write here is for *keyboard* navigation (an arrow key
-            // pushing the cursor off-window scrolls to follow it). Re-driving
-            // scroll from the cursor mid-drag would clobber the autoscroll's
-            // `scroll_top` every tick, settling at a stuck fixed point where the
-            // window never advances. So while a mouse drag is live, leave
-            // `scroll_top` alone and just re-assert the highlight onto whatever
-            // window the autoscroll's `scroll` listener last materialized.
-            if self.mouse_drag.get() {
+            // Truth = the <tbody>'s scroll_top. Reveal the cursor relative to it
+            // and write once; the `scroll` listener re-windows + re-highlights.
+            let Some(tbody) = self.tbody.get() else {
                 self.apply_highlight(dom);
                 return;
-            }
-            let scrolled = after.scroll() != self.window_start.get();
-            if let Some(tbody) = self.tbody.get() {
-                let _ = dom.node_mut(tbody).set_scroll_top(after.scroll() as i32);
-            }
-            if !scrolled {
+            };
+            let cur_top = dom.node(tbody).scroll_top().unwrap_or(0).max(0) as usize;
+            let want = reveal_scroll(after.row(), cur_top, viewport, rows);
+            if want != cur_top {
+                let _ = dom.node_mut(tbody).set_scroll_top(want as i32);
+            } else {
+                // Already in view — the listener won't fire, so re-highlight here.
                 self.apply_highlight(dom);
             }
             return;
         }
-        let viewport = self.viewport_rows.get() as usize;
-        if viewport > 0 && after.scroll() != self.window_start.get() {
-            let rows = self.with(|t| t.row_count());
-            let (start, count) = VirtualTable::window_for(viewport as u16, after.scroll(), rows);
+
+        // Pure-windowed mode: truth = `window_start`; the same reveal, applied
+        // by re-materializing the window at the new offset.
+        let cur_top = self.window_start.get();
+        let want = reveal_scroll(after.row(), cur_top, viewport, rows);
+        if viewport > 0 && want != cur_top {
+            let (start, count) = VirtualTable::window_for(viewport as u16, want, rows);
             self.show_window(dom, start, count); // re-applies highlight + selection
         } else {
             self.apply_highlight(dom);
@@ -498,11 +503,8 @@ impl VirtualTableView {
             return false;
         }
         self.nav_active.set(true);
-        let viewport = self.viewport_rows.get() as usize;
         let before = self.cursor.get();
-        let after = before
-            .at(row.min(rows - 1), col.min(cols - 1), rows, cols)
-            .follow(viewport.max(1), rows);
+        let after = before.at(row.min(rows - 1), col.min(cols - 1), rows, cols);
         self.cursor.set(after);
         self.selection.borrow_mut().collapse_transient();
         self.refresh_after_cursor(dom, after);
@@ -523,11 +525,8 @@ impl VirtualTableView {
             return false;
         }
         self.nav_active.set(true);
-        let viewport = self.viewport_rows.get() as usize;
         let before = self.cursor.get();
-        let after = before
-            .at(row.min(rows - 1), col.min(cols - 1), rows, cols)
-            .follow(viewport.max(1), rows);
+        let after = before.at(row.min(rows - 1), col.min(cols - 1), rows, cols);
         self.cursor.set(after);
         self.selection
             .borrow_mut()
@@ -548,12 +547,10 @@ impl VirtualTableView {
             return false;
         }
         self.nav_active.set(true);
-        let viewport = self.viewport_rows.get() as usize;
         let after = self
             .cursor
             .get()
-            .at(row.min(rows - 1), col.min(cols - 1), rows, cols)
-            .follow(viewport.max(1), rows);
+            .at(row.min(rows - 1), col.min(cols - 1), rows, cols);
         self.cursor.set(after);
         self.selection.borrow_mut().toggle(row, col);
         self.refresh_after_cursor(dom, after);

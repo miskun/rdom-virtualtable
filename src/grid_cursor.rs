@@ -25,17 +25,21 @@ pub enum Nav {
     PageDown,
 }
 
-/// A logical cursor over a virtual grid: the active `(row, col)` cell plus a
-/// vertical `scroll` offset (the top visible data row).
+/// A logical cursor over a virtual grid: the active `(row, col)` cell.
 ///
-/// Pure and `Copy` — holds no DOM. `row`/`col` are logical indices over the
-/// *whole* dataset, not the materialized window. Movement is always clamped to
-/// the grid bounds, so a cursor can never address a cell that doesn't exist.
+/// Pure and `Copy` — holds no DOM and **no scroll position**. `row`/`col` are
+/// logical indices over the *whole* dataset, not the materialized window.
+/// Movement is always clamped to the grid bounds, so a cursor can never address
+/// a cell that doesn't exist.
+///
+/// The scroll/window position is **not** the cursor's concern — it's owned by
+/// the view (the scroll container's `scroll_top` in native-scrollbar mode, or
+/// `window_start` when windowing without a scrollbar). [`reveal_scroll`]
+/// computes the scroll-into-view offset from that single source of truth.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GridCursor {
     row: usize,
     col: usize,
-    scroll: usize,
 }
 
 impl GridCursor {
@@ -54,13 +58,7 @@ impl GridCursor {
         self.col
     }
 
-    /// The top visible data row (window start, before any overscan).
-    pub fn scroll(&self) -> usize {
-        self.scroll
-    }
-
     /// Place the cursor at `(row, col)`, clamped to a `rows × cols` grid.
-    /// Leaves `scroll` untouched — pair with [`follow`](Self::follow).
     #[must_use]
     pub fn at(mut self, row: usize, col: usize, rows: usize, cols: usize) -> Self {
         self.row = row.min(rows.saturating_sub(1));
@@ -71,8 +69,7 @@ impl GridCursor {
     /// Move the active cell per `nav`, clamped to a `rows × cols` grid.
     ///
     /// `page` is the row step for `PageUp`/`PageDown` (typically the visible
-    /// row count). Scroll is left untouched — call [`follow`](Self::follow)
-    /// afterwards to keep the cursor on screen.
+    /// row count).
     #[must_use]
     pub fn navigate(mut self, nav: Nav, rows: usize, cols: usize, page: usize) -> Self {
         let last_row = rows.saturating_sub(1);
@@ -92,24 +89,32 @@ impl GridCursor {
         self.col = self.col.min(last_col);
         self
     }
+}
 
-    /// Adjust `scroll` so the active row sits within the visible band
-    /// `[scroll, scroll + viewport_rows)`, then clamp so the final page is
-    /// never over-scrolled. A `viewport_rows` of 0 is a no-op.
-    #[must_use]
-    pub fn follow(mut self, viewport_rows: usize, rows: usize) -> Self {
-        if viewport_rows == 0 {
-            return self;
-        }
-        if self.row < self.scroll {
-            self.scroll = self.row;
-        } else if self.row >= self.scroll + viewport_rows {
-            self.scroll = self.row + 1 - viewport_rows;
-        }
-        let max_scroll = rows.saturating_sub(viewport_rows);
-        self.scroll = self.scroll.min(max_scroll);
-        self
+/// The vertical scroll offset (top visible row) that brings `row` into a
+/// `viewport_rows`-tall window currently scrolled to `top`: scroll up to `row`
+/// if it sits above the window, down just enough if it sits below, else leave
+/// `top` unchanged. Clamped so the final page is never over-scrolled. A
+/// `viewport_rows` of 0 yields `top`.
+///
+/// This is `scrollIntoView` for the grid — and the **single** scroll-position
+/// authority. It's computed from the *current* position the caller passes
+/// (the scroll container's `scroll_top` in native-scrollbar mode, or
+/// `window_start` when windowing without a scrollbar), never from a copy held
+/// on the cursor. So a wheel/drag scroll that the cursor didn't drive is
+/// honored: the next keyboard move reveals the cursor relative to where the
+/// view *actually* sits, instead of snapping back to a stale cursor offset.
+pub(crate) fn reveal_scroll(row: usize, top: usize, viewport_rows: usize, rows: usize) -> usize {
+    if viewport_rows == 0 {
+        return top;
     }
+    let mut top = top;
+    if row < top {
+        top = row;
+    } else if row >= top + viewport_rows {
+        top = row + 1 - viewport_rows;
+    }
+    top.min(rows.saturating_sub(viewport_rows))
 }
 
 /// Map a `KeyboardEvent.key` (plus the shift modifier) to a [`Nav`].
@@ -183,26 +188,30 @@ mod tests {
     }
 
     #[test]
-    fn follow_scrolls_when_cursor_leaves_window() {
-        // Cursor below window pushes scroll down.
-        let c = GridCursor::new().at(20, 0, 100, 2).follow(10, 100);
-        assert_eq!(c.scroll(), 11); // 20 + 1 - 10
-        // Cursor above window pulls scroll up.
-        let c = c.at(5, 0, 100, 2).follow(10, 100);
-        assert_eq!(c.scroll(), 5);
-        // Cursor inside window leaves scroll alone.
-        let c = c.at(8, 0, 100, 2).follow(10, 100);
-        assert_eq!(c.scroll(), 5);
+    fn reveal_scroll_brings_the_row_into_view() {
+        // Below the window → scroll down just enough to show it.
+        assert_eq!(reveal_scroll(20, 0, 10, 100), 11); // 20 + 1 - 10
+        // Above the window → scroll up to it.
+        assert_eq!(reveal_scroll(5, 11, 10, 100), 5);
+        // Inside the window → leave the current offset alone.
+        assert_eq!(reveal_scroll(8, 5, 10, 100), 5);
     }
 
     #[test]
-    fn follow_clamps_scroll_to_last_page() {
-        let c = GridCursor::new().at(99, 0, 100, 2).follow(10, 100);
-        // max_scroll = 100 - 10 = 90, not 99 + 1 - 10 = 90 — coincide here.
-        assert_eq!(c.scroll(), 90);
-        // Tiny dataset never scrolls.
-        let c = GridCursor::new().at(2, 0, 3, 2).follow(10, 3);
-        assert_eq!(c.scroll(), 0);
+    fn reveal_scroll_clamps_to_the_last_page() {
+        assert_eq!(reveal_scroll(99, 0, 10, 100), 90); // max_scroll = 100 - 10
+        // Dataset shorter than the viewport never scrolls.
+        assert_eq!(reveal_scroll(2, 0, 10, 3), 0);
+        // A zero viewport is a no-op (returns the given offset).
+        assert_eq!(reveal_scroll(50, 7, 0, 100), 7);
+    }
+
+    #[test]
+    fn reveal_scroll_honors_the_passed_offset_not_a_cursor_copy() {
+        // The point of the refactor: reveal is computed from the *current*
+        // offset the view passes. A row already visible in a wheel-scrolled
+        // window leaves that window put — no snap-back to a stale offset.
+        assert_eq!(reveal_scroll(52, 50, 10, 100), 50); // row 52 ∈ [50, 60)
     }
 
     #[test]

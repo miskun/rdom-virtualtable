@@ -165,8 +165,8 @@ fn navigation_past_window_shifts_and_rehighlights() {
 
     // The window stayed bounded and shifted to keep the cursor visible.
     assert_eq!(view.mounted_row_count(), 5, "window stays bounded");
-    let scroll = view.cursor().scroll();
-    assert_eq!(scroll, 6, "scroll follows cursor (10 + 1 - 5)");
+    let scroll = view.window_start();
+    assert_eq!(scroll, 6, "window follows cursor (10 + 1 - 5)");
 
     // Exactly one materialized row carries the highlight — the cursor's.
     let rows = tbody_rows(&dom, table);

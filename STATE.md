@@ -352,13 +352,10 @@ the drag began — browser parity. Built entirely on the substrate's new opt-in 
   press a top cell, drag-hold at the bottom edge, `advance(50)` ×8, assert the selection grew beyond
   the initial window + a previously-off-screen row is selected + no further scroll after release.
   Runs against the **published** rdom-tui 0.3.11 (no path patch).
-- **Known debt (`SCROLL-SINGLE-OWNER-1`, see roadmap).** The `!mouse_drag` gate is an *interim* fix:
-  it suppresses the symptom (two writers fighting over `scroll_top`) without removing the cause —
-  `GridCursor.scroll` is a **redundant second source of truth** for scroll position that we push back
-  into the container's real `scrollTop` on every cursor change. This is un-browser-like (browser
-  scrolling is unidirectional: `scrollTop` is the truth, the window is a pure function of it). The
-  redundancy is inherited from the pre-`enable_scrollbar` pure-windowed mode, where the cursor's
-  `scroll` field *was* the only truth. The root fix is tracked below.
+- **`SCROLL-SINGLE-OWNER-1` — RESOLVED** (see the dedicated "Shipped" section below). The
+  `!mouse_drag` gate was the interim fix; the redundant `GridCursor.scroll` second source of truth is
+  now gone — `reveal_scroll` computes scroll-into-view from the single authoritative position and the
+  guard was removed.
 
 ## Shipped — drag-autoscroll live hardening (rdom-tui 0.3.12 → 0.3.13)
 
@@ -384,21 +381,30 @@ bump + a regression test:
   `scroll_top == window_start` every tick. New `VirtualTableView::window_start()` accessor. Runs
   against the **published** rdom-tui 0.3.13.
 
-## Roadmap (not yet done)
+## Shipped — `SCROLL-SINGLE-OWNER-1`: one scroll authority
 
-- **`SCROLL-SINGLE-OWNER-1` — collapse to one scroll authority in scroll-mode (own milestone).**
-  Once `enable_scrollbar` is engaged there are two scroll-position state holders — the `<tbody>`'s
-  real `scrollTop` and `GridCursor.scroll` — and `refresh_after_cursor` reconciles cursor→container
-  while the `scroll` listener reconciles container→window, a bidirectional loop. The drag-autoscroll
-  gotcha (above) is the bill: a `!mouse_drag` guard now suppresses it. **Root fix:** in scroll-mode
-  make the container's `scrollTop` authoritative, drop `GridCursor.scroll` as a source of truth, and
-  reduce `follow` to a pure "compute the `scrollTop` that reveals row R" helper invoked **only** by
-  keyboard nav (write-once, `scrollIntoView`-shape) — so nav-scroll and drag-autoscroll-scroll stop
-  sharing a write path. Eliminates the gotcha *by construction*, not by a flag, and removes the
-  guard. Needs its own test pass (keyboard scroll-to-follow, wheel/drag decoupled re-window, drag
-  autoscroll — all still green). Pure-windowed mode (no container) keeps the cursor as truth; the
-  refactor is scoped to scroll-mode. (Background: rdom's `DRAG-AUTOSCROLL.md` §"Consumer autoscroll
-  contract" rule 3.)
+Collapsed the two scroll-position sources of truth into one. Previously, in scroll-mode the
+`<tbody>`'s real `scrollTop` **and** `GridCursor.scroll` both tracked the offset, and
+`refresh_after_cursor` reconciled cursor→container while the `scroll` listener reconciled
+container→window — a bidirectional loop the `!mouse_drag` guard only papered over.
+
+- **`GridCursor` is now pure `(row, col)`** — the `scroll` field, `follow()`, and `scroll()` are
+  gone. The scroll/window position is owned by the *view*: the `<tbody>`'s `scroll_top` in
+  native-scrollbar mode, `window_start` in pure-windowed mode.
+- **One shared `reveal_scroll(row, top, viewport, rows)`** (the old `follow` logic as a free fn)
+  computes scroll-into-view from the **current** position the view passes — never a cursor-held copy.
+  So a wheel/drag scroll the cursor didn't drive is honored (no snap-back to a stale offset).
+- **`refresh_after_cursor`** computes `reveal_scroll` against `scroll_top` (scroll-mode) or
+  `window_start` (pure-mode) and writes once. The **`!mouse_drag` guard is gone**: during an
+  autoscroll drag the head cell stays inside the materialized window, so `reveal_scroll` returns the
+  current offset and never writes — the substrate's autoscroll `scroll_top` is left untouched *by
+  construction*, not by a flag.
+- Tests: `reveal_scroll` units (in/above/below/clamp/honors-passed-offset); existing keyboard-nav
+  (`navigation_past_window_shifts_and_rehighlights` now reads `window_start()`), drag-autoscroll, and
+  the stable-column/unclipped-window regression all green. (Background: rdom's `DRAG-AUTOSCROLL.md`
+  §"Consumer autoscroll contract" rule 3.)
+
+## Roadmap (not yet done)
 
 - **Column ops:** all shipped (sort / reorder / hide-show + show/hide dropdown / resize). Future: the full Table
   Formatting Context (`display:table`, anonymous boxes, auto algorithm, colspan/rowspan,

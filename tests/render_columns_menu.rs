@@ -166,7 +166,10 @@ fn chooser_lists_all_columns_with_checkbox_state() {
     assert_eq!(s.position, Some(Value::Specified(Position::Absolute)));
     assert_eq!(s.top, Some(Value::Specified(Length::Cells(1))));
     assert_eq!(s.right, Some(Value::Specified(Length::Cells(0))));
-    assert_eq!(s.padding, Some(Value::Specified(Padding::symmetric(1, 0))));
+    assert!(
+        s.padding.is_none(),
+        "no padding — the half-block border is the edge"
+    );
     assert!(s.z_index.is_some());
 
     // One row per column (ALL of them), native checkbox, checked = visible.
@@ -216,22 +219,22 @@ fn rows_render_on_one_line_with_a_visible_highlight_bar() {
         }
         (s, n)
     };
-    // Header at y0; the chooser drops at y1. Each row is the checkbox glyph
-    // (`[x]`) AND the label on the SAME line (regression: the input used to wrap
-    // the label onto its own line).
-    let (r0, _) = line(1);
+    // Header at y0, the chooser drops at y1: y1 is the half-block top border,
+    // so the column rows start at y2. Each row is the checkbox glyph (`[x]`) AND
+    // the label on the SAME line (regression: the input used to wrap the label).
+    let (r0, hl0) = line(2);
     assert!(
         r0.contains("[x]") && r0.contains("c0"),
         "row 0 on one line: {r0:?}"
     );
-    let (r1, hl1) = line(2);
+    let (r1, hl1) = line(3);
     assert!(
         r1.contains("[x]") && r1.contains("c1"),
         "row 1 on one line: {r1:?}"
     );
     // The highlighted row (cursor moved to row 1) paints a bg bar; the others don't.
     assert!(hl1 > 0, "highlighted row paints a bar");
-    assert_eq!(line(1).1, 0, "non-highlighted row has no bar");
+    assert_eq!(hl0, 0, "non-highlighted row has no bar");
 }
 
 #[test]

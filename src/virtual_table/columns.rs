@@ -5,7 +5,7 @@
 use rdom_tui::layout::{Border, BorderStyle, Length, Position, ZIndex};
 use rdom_tui::runtime::builtins::table::size_columns;
 use rdom_tui::{
-    Color, Direction, Display, Flow, ListenerOptions, NodeId, Padding, Size, TuiDom, TuiNodeMutExt,
+    Color, Direction, Display, Flow, ListenerOptions, NodeId, Size, TuiDom, TuiNodeMutExt,
     TuiStyle, Value,
 };
 
@@ -249,27 +249,21 @@ impl VirtualTableView {
             .map(|(_, l, _)| l.chars().count())
             .max()
             .unwrap_or(0);
-        // content (checkbox + label) + `padding: 0 1` (2) + the half-block
-        // left/right border cells (2).
-        let width = (CHECKBOX_W + label_w as u16).saturating_add(4).max(1);
-        // One row per column + one for the half-block bottom edge (each border
-        // occupies its own cell in the border-box).
-        let height = (cols.len() as u16).max(1) + 1;
-        // Soft edges: half-block left/right/bottom borders drawn in the panel's
-        // own bg color over transparent cells, so the panel reads as if it
-        // spills a half-cell past each edge (the outer half of `▐`/`▌`/`▀` shows
-        // the content beneath). The half-block paint skips the cell bg itself.
-        let edge = Border {
-            bottom: BorderStyle::HalfBlock,
-            left: BorderStyle::HalfBlock,
-            right: BorderStyle::HalfBlock,
-            ..Border::none()
-        };
+        // content (checkbox + label) + the half-block left/right border cells.
+        // No padding — the soft border is the panel's edge spacing.
+        let width = (CHECKBOX_W + label_w as u16).saturating_add(2).max(1);
+        // One row per column + the top and bottom half-block border rows (each
+        // border occupies its own cell in the border-box).
+        let height = (cols.len() as u16).max(1) + 2;
+        // Soft half-block border on all four sides, drawn in the panel's own bg
+        // color over transparent cells, so the panel reads as a rounded block
+        // spilling a half-cell past each edge (the outer half of `▀`/`▄`/`▐`/`▌`
+        // shows the content beneath). The half-block paint skips the cell bg.
+        let edge = Border::ring(BorderStyle::HalfBlock);
         let mut s = TuiStyle::new()
             .bg(MENU_BG)
             .width(Size::Fixed(width))
             .height(Size::Fixed(height))
-            .padding(Padding::symmetric(1, 0)) // 0 1 — inset rows from the edges
             .border(edge)
             .border_fg(MENU_BG);
         s.position = Some(Value::Specified(Position::Absolute));

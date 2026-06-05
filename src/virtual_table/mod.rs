@@ -22,9 +22,10 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use rdom_tui::layout::{Border, BorderStyle};
 use rdom_tui::runtime::builtins::table::size_columns;
 use rdom_tui::{
-    Color, Display, ListenerOptions, NodeId, Overflow, Size, Stylesheet, TuiAccessors,
+    Color, Display, ListenerOptions, NodeId, Overflow, Padding, Size, Stylesheet, TuiAccessors,
     TuiAccessorsMut, TuiDom, TuiNodeMutExt, TuiStyle, Value,
 };
 
@@ -711,12 +712,25 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
             s
         }),
         // Open overflow chip: while its dropdown is open the chip carries
-        // `data-vt-menu-open`. Fill its box (the "…" plus the UA `<th>` padding
-        // cell on each side) with the dropdown's background so the chip reads as
-        // the panel's tab. Same bg as the menu (`columns::MENU_BG`).
+        // `data-vt-menu-open` and reads as the panel's tab — `▐…▌`, soft
+        // half-block side edges in the dropdown's bg color, whose right edge
+        // lines up with the panel's right edge directly below (the panel anchors
+        // `right: 0` to the chip). Padding drops to 0 so the border cells replace
+        // the UA `<th>` side padding (chip width 3 = `▐` + `…` + `▌`). NOT wrapped
+        // in `:where()` — it must outrank the UA `th { padding }` rule to claim
+        // those side cells; the cursor/selection rules below stay low-specificity
+        // for consumer overriding, but this is structural chrome, not a tint.
         (
-            ":where(th[data-vt-overflow][data-vt-menu-open])",
-            TuiStyle::new().bg(columns::MENU_BG),
+            "th[data-vt-overflow][data-vt-menu-open]",
+            TuiStyle::new()
+                .bg(columns::MENU_BG)
+                .padding(Padding::all(0))
+                .border(Border {
+                    left: BorderStyle::HalfBlock,
+                    right: BorderStyle::HalfBlock,
+                    ..Border::none()
+                })
+                .border_fg(columns::MENU_BG),
         ),
         // Keyboard highlight inside the open dropdown: the focused row carries
         // `data-vt-menu-active` (Up/Down move it). A brighter blue than the

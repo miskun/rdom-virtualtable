@@ -13,4 +13,4 @@ readme = "README.md"
 [dependencies]
 # Public rdom-tui surface only (native <table>, element/text builders,
 # column sync). No path dep, no private hooks.
-rdom-tui = "0.3.7"  # 0.3.7+: layout collapses display:none rects + clears stale anon boxes → self-contained dropdown anchoring works (LAYOUT-DISPLAY-NONE-STALE-RECT, PAINT-RELATIVE-ABSPOS-DOUBLE)
+rdom-tui = "0.3.8"  # 0.3.8+: half-block side edges paint on a 1-row box + out-of-flow text no longer leaks into inline content → the column-chooser chip gets soft `▐…▌` edges (PAINT-HALFBLOCK-1ROW-1, TREE-BFC-PSEUDO-1)

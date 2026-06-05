@@ -88,6 +88,13 @@ pub struct VirtualTableView {
     /// The open show/hide dropdown overlay (a floating `<div data-vt-menu>`
     /// child of the chip), or `None` when closed.
     column_menu: Rc<Cell<Option<NodeId>>>,
+    /// The welded "tab" box over the chip — a bordered box whose bottom edge
+    /// coincides with the panel's top row, so `join_borders` welds chip-tab and
+    /// panel into one tab-panel outline. Created once with `enable_column_actions`
+    /// and kept in the tree (`display:none` while closed), toggled visible while
+    /// the menu is open — toggling display avoids dropping an absolute subtree
+    /// each close (which trips a stale-node deref in the incremental cascade).
+    menu_tab: Rc<Cell<Option<NodeId>>>,
     /// Index of the highlighted row in the open dropdown (into the current
     /// hidden-columns list). Meaningful only while the menu is open; reset to 0
     /// on open and clamped as the list shrinks.
@@ -114,6 +121,7 @@ impl VirtualTableView {
             header_tr: Rc::new(Cell::new(None)),
             overflow_chip: Rc::new(Cell::new(None)),
             column_menu: Rc::new(Cell::new(None)),
+            menu_tab: Rc::new(Cell::new(None)),
             menu_cursor: Rc::new(Cell::new(0)),
         }
     }

@@ -282,6 +282,42 @@ fn open_chip_has_half_block_side_edges_aligned_with_the_panel() {
 }
 
 #[test]
+fn open_chip_welds_into_the_panel() {
+    // The chip's tab box and the panel weld into one tab-panel outline on the
+    // panel's top-border row: `▟` (tab bottom-left ∪ panel top), `█` (tab bottom
+    // ∪ panel top, under the `…`), `▌` (tab right edge = panel right edge).
+    // Requires rdom-tui's half-block quadrant welding (HALFBLOCK-JOIN-1).
+    let view = grid(3);
+    let (mut dom, _table) = mounted(&view);
+    let vp = Rect::new(0, 0, 40, 12);
+    let sheet = highlight_stylesheet();
+    dom.cascade(&sheet);
+    dom.layout_dom(vp);
+    view.toggle_column_menu(&mut dom);
+    dom.cascade(&sheet);
+    dom.layout_dom(vp);
+    let mut buf = Buffer::empty(vp);
+    dom.paint_dom(&mut buf, vp);
+
+    // The chip's right edge `▌` on the header row; the weld row is y1 below it.
+    let chip_right = (0..vp.width)
+        .rfind(|&x| buf.cell(x, 0).map(|c| c.symbol()) == Some("▌"))
+        .expect("chip right edge");
+    let cell = |x: u16| buf.cell(x, 1).expect("cell in viewport");
+    assert_eq!(
+        cell(chip_right - 2).symbol(),
+        "▟",
+        "weld: tab-left ∪ panel-top"
+    );
+    assert_eq!(
+        cell(chip_right - 1).symbol(),
+        "█",
+        "weld: full block under …"
+    );
+    assert_eq!(cell(chip_right).symbol(), "▌", "weld: shared right edge");
+}
+
+#[test]
 fn open_chooser_suppresses_the_cursor_crosshair() {
     // With the chooser open, the table's cursor cross-hair + selection should
     // step aside so focus rests on the dropdown.

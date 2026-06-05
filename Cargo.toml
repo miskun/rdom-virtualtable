@@ -13,4 +13,4 @@ readme = "README.md"
 [dependencies]
 # Public rdom-tui surface only (native <table>, element/text builders,
 # column sync). No path dep, no private hooks.
-rdom-tui = "0.3.8"  # 0.3.8+: half-block side edges paint on a 1-row box + out-of-flow text no longer leaks into inline content → the column-chooser chip gets soft `▐…▌` edges (PAINT-HALFBLOCK-1ROW-1, TREE-BFC-PSEUDO-1)
+rdom-tui = "0.3.9"  # 0.3.9+: half-block borders weld across elements (quadrant join) + painted content occludes lower borders → the column-chooser chip welds into the panel as one tab-panel outline `▟█▌` (HALFBLOCK-JOIN-1, BORDER-Z-OCCLUDE-1)

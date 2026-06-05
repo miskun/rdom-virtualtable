@@ -360,6 +360,30 @@ the drag began — browser parity. Built entirely on the substrate's new opt-in 
   redundancy is inherited from the pre-`enable_scrollbar` pure-windowed mode, where the cursor's
   `scroll` field *was* the only truth. The root fix is tracked below.
 
+## Shipped — drag-autoscroll live hardening (rdom-tui 0.3.12 → 0.3.13)
+
+Interactive testing of `scroll_table` after adopting the substrate's drag-autoscroll surfaced two
+live glitches the headless test missed: the selected **column flickered** (jumped between the anchor
+column and col 0) and the window **cropped at the top** (a blank gap above the first row). Both
+turned out to be **substrate** bugs, fixed upstream — no consumer logic change here beyond the pin
+bump + a regression test:
+
+- **0.3.12 — sticky drag-scroll container + banded edge zone.** The substrate stopped re-resolving
+  the scroll container every tick (which stalled once the anchor block scrolled out / the pointer
+  overshot the body). Smooth, unstuck scrolling.
+- **0.3.13 — mid-tick relayout now cascades.** Root cause of the flicker + crop: the autoscroll
+  tick's mid-tick relayout was `layout_dom` only, so our `scroll`-handler re-window + `size_columns`
+  weren't **cascaded** before the synthetic move read layout. The re-materialized cells laid out with
+  col 0 spanning the full row (so `drag_cell_at`'s coord→column mapping resolved col 0 → flicker) and
+  the spacers were mis-sized (under-counted `scroll_content_height` clamped `scroll_top` below
+  `window_start` → cropped top). The substrate now runs the full frame path (cascade + layout)
+  mid-tick. These were **distinct** from `SCROLL-SINGLE-OWNER-1` (the `!mouse_drag` guard still covers
+  that dual-writer; no current bug depends on the refactor).
+- Regression test: `tests/mouse.rs` `drag_autoscroll_keeps_a_stable_column_and_an_unclipped_window` —
+  drag in the NAME column past the edge, assert the column stays col 1 (no col-0 bleed) and
+  `scroll_top == window_start` every tick. New `VirtualTableView::window_start()` accessor. Runs
+  against the **published** rdom-tui 0.3.13.
+
 ## Roadmap (not yet done)
 
 - **`SCROLL-SINGLE-OWNER-1` — collapse to one scroll authority in scroll-mode (own milestone).**

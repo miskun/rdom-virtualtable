@@ -79,6 +79,30 @@ impl VirtualTableView {
         self.sort(dom, col, dir);
     }
 
+    /// Cycle the sort on `col` through the three states a header click walks:
+    /// unsorted → ascending → descending → unsorted. The "off" state restores
+    /// the as-inserted row order. This is what [`install_mouse`] wires to a
+    /// header click.
+    ///
+    /// [`install_mouse`]: VirtualTableView::install_mouse
+    pub fn cycle_sort(&self, dom: &mut TuiDom, col: usize) {
+        match self.sort_state() {
+            Some((c, SortDir::Ascending)) if c == col => self.sort(dom, col, SortDir::Descending),
+            Some((c, SortDir::Descending)) if c == col => self.clear_sort(dom),
+            _ => self.sort(dom, col, SortDir::Ascending),
+        }
+    }
+
+    /// Clear the sort and restore the as-inserted row order (the "off" state of
+    /// [`cycle_sort`](Self::cycle_sort)). Clears the header indicator and the
+    /// selection (row indices now point at different data).
+    pub fn clear_sort(&self, dom: &mut TuiDom) {
+        self.inner.borrow_mut().clear_sort();
+        self.selection.borrow_mut().clear();
+        self.apply_sort_indicator(dom);
+        self.refresh(dom);
+    }
+
     /// Move the column at `from` to index `to`: permutes the model (header +
     /// every row's cell), re-syncs the headers + sort glyph, and
     /// re-materializes the visible window in the new order. The **cursor

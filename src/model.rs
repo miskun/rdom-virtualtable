@@ -64,6 +64,11 @@ fn cell_at(row: &[String], col: usize) -> &str {
 pub struct VirtualTable {
     columns: Vec<Column>,
     rows: Vec<Vec<String>>,
+    /// Original insertion index of `rows[i]`, permuted alongside `rows` on every
+    /// sort. Lets [`clear_sort`](Self::clear_sort) restore the as-inserted order
+    /// (the "off" state of the asc → desc → off header-click cycle) without
+    /// keeping a second copy of the row data.
+    orig: Vec<u32>,
     /// Current sort `(column, direction)`, or `None` if unsorted.
     sort: Option<(usize, SortDir)>,
     /// Column indices currently hidden from display.
@@ -75,16 +80,21 @@ impl VirtualTable {
         Self {
             columns,
             rows: Vec::new(),
+            orig: Vec::new(),
             sort: None,
             hidden: HashSet::new(),
         }
     }
 
     pub fn set_rows(&mut self, rows: Vec<Vec<String>>) {
+        self.orig = (0..rows.len() as u32).collect();
         self.rows = rows;
     }
 
     pub fn push_row(&mut self, row: Vec<String>) {
+        // The next original index is monotonic — a row pushed after a sort still
+        // restores to the end of the as-inserted order on `clear_sort`.
+        self.orig.push(self.orig.len() as u32);
         self.rows.push(row);
     }
 
@@ -171,14 +181,36 @@ impl VirtualTable {
         dir: SortDir,
         cmp: impl Fn(&str, &str) -> std::cmp::Ordering,
     ) {
-        self.rows.sort_by(|a, b| {
+        // Pair each row with its original index so the permutation is tracked;
+        // sort the pairs (stable), then split back out.
+        let mut paired: Vec<(Vec<String>, u32)> =
+            self.rows.drain(..).zip(self.orig.drain(..)).collect();
+        paired.sort_by(|(a, _), (b, _)| {
             let ord = cmp(cell_at(a, col), cell_at(b, col));
             match dir {
                 SortDir::Ascending => ord,
                 SortDir::Descending => ord.reverse(),
             }
         });
+        for (r, o) in paired {
+            self.rows.push(r);
+            self.orig.push(o);
+        }
         self.sort = Some((col, dir));
+    }
+
+    /// Restore the as-inserted row order and clear the recorded sort — the
+    /// "off" state of the asc → desc → off header-click cycle. No-op on the
+    /// data order if the table was never sorted.
+    pub fn clear_sort(&mut self) {
+        let mut paired: Vec<(Vec<String>, u32)> =
+            self.rows.drain(..).zip(self.orig.drain(..)).collect();
+        paired.sort_by_key(|(_, o)| *o);
+        for (r, o) in paired {
+            self.rows.push(r);
+            self.orig.push(o);
+        }
+        self.sort = None;
     }
 
     /// Move the column at `from` to index `to`, permuting the header and
@@ -292,6 +324,28 @@ mod tests {
         t.sort_by(0, SortDir::Descending);
         assert_eq!(col0(&t), vec!["cherry", "banana", "apple"]);
         assert_eq!(t.sort_state(), Some((0, SortDir::Descending)));
+    }
+
+    #[test]
+    fn clear_sort_restores_as_inserted_order() {
+        let mut t = VirtualTable::new(vec![Column::new("a")]);
+        t.set_rows(vec![
+            vec!["banana".into()],
+            vec!["apple".into()],
+            vec!["cherry".into()],
+        ]);
+        t.sort_by(0, SortDir::Ascending);
+        assert_eq!(col0(&t), vec!["apple", "banana", "cherry"]);
+        t.clear_sort();
+        assert_eq!(
+            col0(&t),
+            vec!["banana", "apple", "cherry"],
+            "off restores the as-inserted order"
+        );
+        assert_eq!(t.sort_state(), None);
+        // And re-sorting after a clear still works (orig vector stayed aligned).
+        t.sort_by(0, SortDir::Descending);
+        assert_eq!(col0(&t), vec!["cherry", "banana", "apple"]);
     }
 
     #[test]

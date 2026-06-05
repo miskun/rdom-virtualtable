@@ -22,11 +22,11 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use rdom_tui::layout::{Border, BorderStyle};
+use rdom_tui::layout::{Border, BorderStyle, UserSelect};
 use rdom_tui::runtime::builtins::table::size_columns;
 use rdom_tui::{
-    Color, Display, ListenerOptions, NodeId, Overflow, Padding, Size, Stylesheet, TuiAccessors,
-    TuiAccessorsMut, TuiDom, TuiNodeMutExt, TuiStyle, Value,
+    Color, Display, ListenerOptions, MouseButton, NodeId, Overflow, Padding, Size, Stylesheet,
+    TuiAccessors, TuiAccessorsMut, TuiDom, TuiNodeMutExt, TuiStyle, Value,
 };
 
 use crate::grid_cursor::{GridCursor, Nav, nav_for_key};
@@ -99,6 +99,10 @@ pub struct VirtualTableView {
     /// hidden-columns list). Meaningful only while the menu is open; reset to 0
     /// on open and clamped as the list shrinks.
     menu_cursor: Rc<Cell<usize>>,
+    /// `true` between a left mousedown on a data cell and the matching mouseup —
+    /// drives rubber-band range selection: `mousemove` while set extends the
+    /// range to the hovered cell. Set by [`install_mouse`](Self::install_mouse).
+    mouse_drag: Rc<Cell<bool>>,
 }
 
 impl VirtualTableView {
@@ -123,6 +127,7 @@ impl VirtualTableView {
             column_menu: Rc::new(Cell::new(None)),
             menu_tab: Rc::new(Cell::new(None)),
             menu_cursor: Rc::new(Cell::new(0)),
+            mouse_drag: Rc::new(Cell::new(false)),
         }
     }
 
@@ -461,6 +466,101 @@ impl VirtualTableView {
         self.apply_highlight(dom);
     }
 
+    // ── Mouse-driven cursor + selection (logical coordinates) ────────
+
+    /// Move the cursor to logical `(row, col)`, scroll it into view, and
+    /// collapse the transient selection — the plain click-to-select gesture
+    /// (the mouse analog of an arrow-key move). Returns `true` if the cursor
+    /// moved. No-op for an empty grid.
+    pub fn set_cursor_at(&self, dom: &mut TuiDom, row: usize, col: usize) -> bool {
+        let (rows, cols) = self.with(|t| (t.row_count(), t.columns().len()));
+        if rows == 0 || cols == 0 {
+            return false;
+        }
+        self.nav_active.set(true);
+        let viewport = self.viewport_rows.get() as usize;
+        let before = self.cursor.get();
+        let after = before
+            .at(row.min(rows - 1), col.min(cols - 1), rows, cols)
+            .follow(viewport.max(1), rows);
+        self.cursor.set(after);
+        self.selection.borrow_mut().collapse_transient();
+        self.refresh_after_cursor(dom, after);
+        after != before
+    }
+
+    /// Extend the selection to logical `(row, col)` — Shift+click and drag.
+    /// Anchors at the pre-extend cursor if no range is active, head at
+    /// `(row, col)`; moves the cursor to the head. When the selection mode is
+    /// `None` this is just a cursor move (matching the keyboard, where Shift
+    /// without a mode does nothing special).
+    pub fn extend_selection_to(&self, dom: &mut TuiDom, row: usize, col: usize) -> bool {
+        if self.selection_mode() == SelectionMode::None {
+            return self.set_cursor_at(dom, row, col);
+        }
+        let (rows, cols) = self.with(|t| (t.row_count(), t.columns().len()));
+        if rows == 0 || cols == 0 {
+            return false;
+        }
+        self.nav_active.set(true);
+        let viewport = self.viewport_rows.get() as usize;
+        let before = self.cursor.get();
+        let after = before
+            .at(row.min(rows - 1), col.min(cols - 1), rows, cols)
+            .follow(viewport.max(1), rows);
+        self.cursor.set(after);
+        self.selection
+            .borrow_mut()
+            .extend((before.row(), before.col()), (after.row(), after.col()));
+        self.refresh_after_cursor(dom, after);
+        true
+    }
+
+    /// Toggle logical `(row, col)` in the selection and move the cursor there —
+    /// Ctrl/⌘+click (the mouse analog of `Space`). When the mode is `None` this
+    /// is just a cursor move.
+    pub fn toggle_at(&self, dom: &mut TuiDom, row: usize, col: usize) -> bool {
+        if self.selection_mode() == SelectionMode::None {
+            return self.set_cursor_at(dom, row, col);
+        }
+        let (rows, cols) = self.with(|t| (t.row_count(), t.columns().len()));
+        if rows == 0 || cols == 0 {
+            return false;
+        }
+        self.nav_active.set(true);
+        let viewport = self.viewport_rows.get() as usize;
+        let after = self
+            .cursor
+            .get()
+            .at(row.min(rows - 1), col.min(cols - 1), rows, cols)
+            .follow(viewport.max(1), rows);
+        self.cursor.set(after);
+        self.selection.borrow_mut().toggle(row, col);
+        self.refresh_after_cursor(dom, after);
+        true
+    }
+
+    /// Logical `(row, col)` of the data cell (`<td>`) containing `target`, or
+    /// `None` if `target` isn't inside a materialized body cell. Maps the cell's
+    /// window row back to a logical row via `window_start`.
+    fn data_cell_of(&self, dom: &TuiDom, target: NodeId) -> Option<(usize, usize)> {
+        let td = dom.node(target).closest("td")?.id();
+        let cells = self.mounted_cells.borrow();
+        for (r, row) in cells.iter().enumerate() {
+            if let Some(c) = row.iter().position(|&id| id == td) {
+                return Some((self.window_start.get() + r, c));
+            }
+        }
+        None
+    }
+
+    /// Column index of the header cell (`<th>`) containing `target`, or `None`
+    /// (the trailing overflow chip is not a model column, so it returns `None`).
+    fn header_col_of(&self, dom: &TuiDom, target: NodeId) -> Option<usize> {
+        let th = dom.node(target).closest("th")?.id();
+        self.header_cells.borrow().iter().position(|&id| id == th)
+    }
+
     /// Re-materialize the currently-shown window (same start + count) — call
     /// after mutating the model via [`with`](Self::with) so the DOM reflects
     /// the change. No-op before [`mount`](Self::mount).
@@ -549,6 +649,109 @@ impl VirtualTableView {
         .expect("table node accepts a keydown listener");
         // Reflect the initial cursor onto whatever window is already shown.
         self.apply_highlight(dom);
+    }
+
+    /// Wire mouse interaction (root-delegated, so it survives window
+    /// re-materialization). Idempotent concerns aside, call once after
+    /// [`mount`](Self::mount):
+    ///
+    /// - **Header click** cycles that column's sort: asc → desc → off (off
+    ///   restores the as-inserted order). See [`cycle_sort`](Self::cycle_sort).
+    /// - **Click a body cell** moves the cursor to it (collapsing any range).
+    /// - **Shift+click** extends the selection range to the clicked cell.
+    /// - **Ctrl/⌘+click** toggles the clicked cell/row in the selection.
+    /// - **Press + drag** rubber-bands a range from the press cell to the cell
+    ///   under the cursor.
+    ///
+    /// The selection gestures (drag / Shift / Ctrl) need a selection mode
+    /// ([`set_selection_mode`](Self::set_selection_mode)); plain clicks and sort
+    /// work regardless. Pair with [`install_nav`](Self::install_nav) for the
+    /// keyboard. The table cells should set `user-select: none` (the
+    /// [`highlight_stylesheet`] does) so a drag rubber-bands cells instead of
+    /// starting a text selection.
+    pub fn install_mouse(&self, dom: &mut TuiDom) {
+        let root = dom.root();
+
+        // mousedown on a body cell: start the interaction (+ a potential drag).
+        let view = self.clone();
+        dom.add_event_listener(root, "mousedown", ListenerOptions::default(), move |ctx| {
+            if view.is_column_menu_open() {
+                return;
+            }
+            let Some(target) = ctx.event.target else {
+                return;
+            };
+            let Some(m) = ctx.event.detail.as_mouse() else {
+                return;
+            };
+            if m.button != MouseButton::Left {
+                return;
+            }
+            let Some((row, col)) = view.data_cell_of(ctx.dom, target) else {
+                return;
+            };
+            if m.modifiers.ctrl || m.modifiers.meta {
+                view.toggle_at(ctx.dom, row, col);
+            } else if m.modifiers.shift {
+                view.extend_selection_to(ctx.dom, row, col);
+            } else {
+                view.set_cursor_at(ctx.dom, row, col);
+                view.mouse_drag.set(true);
+            }
+            ctx.event.prevent_default(); // suppress the default text-selection drag
+            ctx.request_redraw();
+        })
+        .expect("root accepts a mousedown listener");
+
+        // mousemove while dragging: extend the range to the hovered cell.
+        let view = self.clone();
+        dom.add_event_listener(root, "mousemove", ListenerOptions::default(), move |ctx| {
+            if !view.mouse_drag.get() {
+                return;
+            }
+            let Some(m) = ctx.event.detail.as_mouse() else {
+                return;
+            };
+            // Left button released out of band → end the drag defensively.
+            if m.buttons & 0b0001 == 0 {
+                view.mouse_drag.set(false);
+                return;
+            }
+            let Some(target) = ctx.event.target else {
+                return;
+            };
+            if let Some((row, col)) = view.data_cell_of(ctx.dom, target)
+                && view.extend_selection_to(ctx.dom, row, col)
+            {
+                ctx.request_redraw();
+            }
+        })
+        .expect("root accepts a mousemove listener");
+
+        // mouseup anywhere: end the drag (the range stays as committed).
+        let view = self.clone();
+        dom.add_event_listener(root, "mouseup", ListenerOptions::default(), move |_ctx| {
+            view.mouse_drag.set(false);
+        })
+        .expect("root accepts a mouseup listener");
+
+        // click on a header: cycle the sort. Body-cell clicks are handled on
+        // mousedown; the overflow chip / chooser are handled by
+        // `install_menu_clicks`. Skip while the chooser owns the pointer.
+        let view = self.clone();
+        dom.add_event_listener(root, "click", ListenerOptions::default(), move |ctx| {
+            if view.is_column_menu_open() {
+                return;
+            }
+            let Some(target) = ctx.event.target else {
+                return;
+            };
+            if let Some(col) = view.header_col_of(ctx.dom, target) {
+                view.cycle_sort(ctx.dom, col);
+                ctx.request_redraw();
+            }
+        })
+        .expect("root accepts a click listener");
     }
 
     /// Write the cursor (`data-active-row` / `-col` / `-cell`) and selection
@@ -663,6 +866,10 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
     let cell_gray = Color::Rgb(0x2d, 0x2f, 0x31);
     let cell_blue = Color::Rgb(0x3a, 0x6e, 0xa5);
     vec![
+        // A drag over the cells rubber-bands a cell range (install_mouse), so
+        // suppress the default text drag-selection. `user-select` inherits, so
+        // setting it on the table covers every cell.
+        ("table", TuiStyle::new().user_select(UserSelect::None)),
         (
             ":where(table:focus:not([data-vt-menu-open]) tr[data-active-row])",
             TuiStyle::new().bg(line),

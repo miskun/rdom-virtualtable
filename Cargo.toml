@@ -14,3 +14,8 @@ readme = "README.md"
 # Public rdom-tui surface only (native <table>, element/text builders,
 # column sync). No path dep, no private hooks.
 rdom-tui = "0.3.10"  # 0.3.10+: drop_subtree of sibling-dirtied absolute children is safe (CASCADE-FREED-ROOT-1) — the chooser tab can be dropped on close instead of display-toggled
+
+[dev-dependencies]
+# Synthesize crossterm MouseEvents for the mouse-interaction tests (must match
+# rdom-tui's crossterm version so `TuiEvent::mousedown(MouseEvent)` accepts them).
+crossterm = "0.28"

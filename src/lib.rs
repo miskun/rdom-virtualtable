@@ -33,6 +33,11 @@
 //! `PageUp`/`PageDown`), or drive [`VirtualTableView::navigate`] from your own
 //! keymap over [`Nav`] / [`nav_for_key`].
 //!
+//! [`VirtualTableView::install_mouse`] adds the pointer: **click a header** to
+//! cycle its sort (asc → desc → off), **click a cell** to move the cursor,
+//! **Shift+click** to extend a range, **Ctrl/⌘+click** to toggle a cell, and
+//! **press-drag** to rubber-band a range.
+//!
 //! The cursor is reflected as **presence attributes** so CSS owns the look —
 //! the view never hard-codes colors:
 //!

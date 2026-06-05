@@ -51,8 +51,14 @@ visible and re-materializes the window as needed. Wire the built-in keymap in on
 # fn demo(view: &VirtualTableView, dom: &mut TuiDom, table: NodeId) {
 dom.node_mut(table).set_attribute("tabindex", "0").ok(); // focusable
 view.install_nav(dom, table, /* visible rows */ 14);     // arrows/hjkl, g/G, PageUp/Down
+view.install_mouse(dom);                                 // click/drag select + header-click sort
 # }
 ```
+
+`install_mouse` adds the pointer: **click a header** cycles its sort (asc → desc → off), **click a
+cell** moves the cursor, **Shift+click** extends a range, **Ctrl/⌘+click** toggles a cell, and
+**press-drag** rubber-bands a range. (Selection gestures need a selection mode — see below; clicks
+and sort work regardless.)
 
 The cursor is reflected as **presence attributes** — `data-active-row` on the cursor's `<tr>`,
 `data-active-col` on its column's cells, `data-active-cell` on the cursor cell — so **CSS owns the

@@ -46,8 +46,9 @@ fn flex_col() -> TuiStyle {
 
 fn title_str(row: usize, col: usize) -> String {
     format!(
-        "row {row} · col {col} / {ROWS}  ·  ↑→↓← move · ⇧+↑→↓← select · Space toggle · \
-         s sort · < > move · x hide · c columns · +/- resize · Ctrl-A all · Esc clear · Ctrl-C quit",
+        "row {row} · col {col} / {ROWS}  ·  click/drag select · click header sorts · \
+         ↑→↓← move · ⇧+↑→↓← select · Space toggle · s sort · < > move · x hide · c columns · \
+         +/- resize · Ctrl-A all · Esc clear · Ctrl-C quit",
     )
 }
 
@@ -100,6 +101,10 @@ fn main() -> io::Result<()> {
     // the cursor highlight from here on).
     view.show_window(&mut dom, 0, VISIBLE as usize);
     view.install_nav(&mut dom, table, VISIBLE);
+    // Wire mouse: click a header to cycle its sort (asc → desc → off); click a
+    // cell to move the cursor; Shift+click extends a range, Ctrl/⌘+click toggles
+    // a cell, and press-drag rubber-bands a range.
+    view.install_mouse(&mut dom);
     // Native vertical scrollbar: the <tbody> scrolls, the thumb reflects all
     // 500 rows (spacer rows), and the mouse wheel / drag scrolls decoupled from
     // the cursor. Keyboard nav still scrolls the view to keep the cursor visible.

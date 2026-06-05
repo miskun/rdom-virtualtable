@@ -297,6 +297,32 @@ way to exercise the substrate.
 - **Next:** the column's body cells host per-row action triggers (edit / remove / open-in-… per-row
   dropdowns) via a registered-actions API — design TBD.
 
+## Shipped — mouse interaction (M9)
+
+Pointer parity for sort + selection, root-delegated so it survives window re-materialization.
+Opt in with `install_mouse(dom)` (alongside `install_nav`).
+
+- **Header click cycles the sort** asc → desc → **off** (`cycle_sort`). "Off" restores the
+  as-inserted row order — added a parallel `orig: Vec<u32>` to the model (permuted alongside `rows`
+  on every sort) + `VirtualTable::clear_sort`, so "off" costs an O(n) re-permute with **no second
+  copy of the row data**. The view's `clear_sort` clears the header indicator + selection too.
+- **Cell selection by mouse**, mapping a clicked node → logical `(row, col)` via `closest("td")` +
+  the materialized `mounted_cells` (window row → logical via `window_start`); headers via
+  `closest("th")` + `header_cells`. New view methods drive the existing pure `GridSelection`:
+  - **click** → `set_cursor_at` (move cursor, collapse transient — the mouse arrow-move).
+  - **Shift+click** → `extend_selection_to` (anchor at the pre-extend cursor, head at the click).
+  - **Ctrl/⌘+click** → `toggle_at` (discontiguous add/remove — the mouse `Space`).
+  - **press-drag** → `mousedown` anchors + sets `mouse_drag`; `mousemove` (while `buttons & 1`)
+    extends to the hovered cell; `mouseup` ends it. `prevent_default` on mousedown + a
+    `table { user-select: none }` highlight rule keep a drag rubber-banding cells, not selecting text.
+  - Selection gestures need a `SelectionMode`; plain click + sort work regardless.
+- The header-sort `click` handler and the chooser's `click` handler coexist on root (each guards on
+  its own target / `is_column_menu_open`).
+- Tests: `tests/mouse.rs` (7) dispatch synthesized crossterm mouse events end-to-end — sort cycle,
+  click-moves-cursor, Shift/Ctrl+click, drag rubber-band, drag-only-while-held; plus
+  `clear_sort_restores_as_inserted_order` in the model. crossterm added as a dev-dep (version-matched
+  to rdom-tui) to synthesize the events.
+
 ## Roadmap (not yet done)
 
 - **Column ops:** all shipped (sort / reorder / hide-show + show/hide dropdown / resize). Future: the full Table

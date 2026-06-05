@@ -1,8 +1,11 @@
 //! Mouse interaction: header-click sort cycle + cell selection (click /
 //! Shift+click / Ctrl+click / drag), wired by `install_mouse`.
 
-use crossterm::event::{KeyModifiers, MouseButton as CtButton, MouseEvent, MouseEventKind};
-use rdom_tui::{NodeId, TuiDispatchExt, TuiDom, TuiEvent};
+use crossterm::event::{
+    Event as CtEvent, KeyModifiers, MouseButton as CtButton, MouseEvent, MouseEventKind,
+};
+use rdom_tui::render::{Terminal, TestBackend};
+use rdom_tui::{App, NodeId, TuiDispatchExt, TuiDom, TuiEvent};
 use rdom_virtualtable::{Column, SelectionMode, SortDir, VirtualTable, VirtualTableView};
 
 const ROWS: usize = 5;
@@ -203,6 +206,89 @@ fn drag_rubber_bands_a_range() {
     assert!(sel.is_selected(1, 0), "interior");
     assert!(!sel.is_selected(3, 0), "below the drag");
     assert_eq!((view.cursor().row(), view.cursor().col()), (2, 1));
+}
+
+// ── End-to-end: drag past the edge autoscrolls + keeps selecting ────
+
+#[test]
+fn drag_past_the_edge_autoscrolls_and_extends_the_selection() {
+    // The headline behavior: a cell-range drag held past the bottom of a
+    // scrollable virtual table scrolls the window in and keeps the rectangle
+    // growing to rows that weren't materialized when the drag started.
+    let mut model = VirtualTable::new((0..3).map(|c| Column::new(format!("c{c}"))).collect());
+    model.set_rows(
+        (0..40)
+            .map(|r| (0..3).map(|c| format!("r{r}c{c}")).collect())
+            .collect(),
+    );
+    let view = VirtualTableView::new(model);
+    view.set_selection_mode(SelectionMode::Cell);
+
+    let mut dom = TuiDom::new();
+    let table = view.mount(&mut dom);
+    dom.node_mut(table).set_attribute("tabindex", "0").ok();
+    let root = dom.root();
+    dom.append_child(root, table).unwrap();
+    let visible = 6u16;
+    view.show_window(&mut dom, 0, visible as usize);
+    view.install_nav(&mut dom, table, visible);
+    view.install_mouse(&mut dom);
+    view.enable_scrollbar(&mut dom);
+    dom.set_focused(Some(table));
+
+    let term = Terminal::new(TestBackend::new(24, 8)).unwrap();
+    let mut app = App::with_backend(dom, rdom_virtualtable::highlight_stylesheet(), term).unwrap();
+    app.draw_if_dirty().unwrap();
+
+    let me = |kind, x: u16, y: u16| {
+        CtEvent::Mouse(MouseEvent {
+            kind,
+            column: x,
+            row: y,
+            modifiers: KeyModifiers::empty(),
+        })
+    };
+    // Press a top cell (anchors the range + captures + arms autoscroll), then
+    // hold a drag at the bottom edge of the viewport. `x = 2` lands in the
+    // first column (col 0) of a 24-wide / 3-column table.
+    let col = 0;
+    app.handle_event(me(MouseEventKind::Down(CtButton::Left), 2, 1));
+    assert_eq!(
+        app.dom().pointer_capture(),
+        Some(table),
+        "mousedown captured the table"
+    );
+    assert!(app.dom().drag_autoscroll(), "mousedown armed autoscroll");
+    app.handle_event(me(MouseEventKind::Drag(CtButton::Left), 2, 7));
+    // Tick the autoscroll several periods while held at the edge.
+    for _ in 0..8 {
+        app.advance(50).unwrap();
+    }
+
+    let sel = view.selection();
+    assert!(sel.is_selected(0, col), "anchor row still selected");
+    assert!(
+        (0..40).filter(|&r| sel.is_selected(r, col)).count() > visible as usize,
+        "autoscroll extended the selection beyond the initial {visible}-row window"
+    );
+    assert!(
+        sel.is_selected(visible as usize + 2, col),
+        "a row that was off-screen at drag start is now selected"
+    );
+
+    // Release stops autoscroll; the selection is stable afterward.
+    app.handle_event(me(MouseEventKind::Up(CtButton::Left), 2, 7));
+    let count_after_release = (0..40)
+        .filter(|&r| view.selection().is_selected(r, col))
+        .count();
+    app.advance(500).unwrap();
+    assert_eq!(
+        (0..40)
+            .filter(|&r| view.selection().is_selected(r, col))
+            .count(),
+        count_after_release,
+        "no further autoscroll after release"
+    );
 }
 
 #[test]

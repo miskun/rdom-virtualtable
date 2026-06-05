@@ -13,7 +13,7 @@ materializes **only the visible row window**. A dataset of any size renders a bo
 ```toml
 [dependencies]
 rdom-virtualtable = "0.1"
-rdom-tui = "0.3.7"
+rdom-tui = "0.3.11"
 ```
 
 ## Try it
@@ -57,8 +57,10 @@ view.install_mouse(dom);                                 // click/drag select + 
 
 `install_mouse` adds the pointer: **click a header** cycles its sort (asc → desc → off), **click a
 cell** moves the cursor, **Shift+click** extends a range, **Ctrl/⌘+click** toggles a cell, and
-**press-drag** rubber-bands a range. (Selection gestures need a selection mode — see below; clicks
-and sort work regardless.)
+**press-drag** rubber-bands a range. With a scrollable body (`enable_scrollbar`), **dragging past the
+top/bottom edge autoscrolls** the window in and keeps the range growing to rows that weren't on
+screen when the drag began — browser-style (rdom-tui ≥ 0.3.11's drag-autoscroll). (Selection gestures
+need a selection mode — see below; clicks and sort work regardless.)
 
 The cursor is reflected as **presence attributes** — `data-active-row` on the cursor's `<tr>`,
 `data-active-col` on its column's cells, `data-active-cell` on the cursor cell — so **CSS owns the

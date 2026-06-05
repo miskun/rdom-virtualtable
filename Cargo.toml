@@ -13,7 +13,7 @@ readme = "README.md"
 [dependencies]
 # Public rdom-tui surface only (native <table>, element/text builders,
 # column sync). No path dep, no private hooks.
-rdom-tui = "0.3.10"  # 0.3.10+: drop_subtree of sibling-dirtied absolute children is safe (CASCADE-FREED-ROOT-1) — the chooser tab can be dropped on close instead of display-toggled
+rdom-tui = "0.3.11"  # 0.3.11+: drag autoscroll — a cell-range drag past the viewport edge scrolls + keeps selecting (DRAG-AUTOSCROLL)
 
 [dev-dependencies]
 # Synthesize crossterm MouseEvents for the mouse-interaction tests (must match

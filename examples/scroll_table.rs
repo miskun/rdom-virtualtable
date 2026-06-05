@@ -103,7 +103,10 @@ fn main() -> io::Result<()> {
     view.install_nav(&mut dom, table, VISIBLE);
     // Wire mouse: click a header to cycle its sort (asc → desc → off); click a
     // cell to move the cursor; Shift+click extends a range, Ctrl/⌘+click toggles
-    // a cell, and press-drag rubber-bands a range.
+    // a cell, and press-drag rubber-bands a range. Dragging past the bottom edge
+    // of the scrollable body autoscrolls the window in and keeps the rectangle
+    // growing to rows that weren't on screen when the drag began (the substrate's
+    // drag-autoscroll — see rdom-tui's DRAG-AUTOSCROLL).
     view.install_mouse(&mut dom);
     // Native vertical scrollbar: the <tbody> scrolls, the thumb reflects all
     // 500 rows (spacer rows), and the mouse wheel / drag scrolls decoupled from

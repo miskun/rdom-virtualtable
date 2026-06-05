@@ -323,6 +323,36 @@ Opt in with `install_mouse(dom)` (alongside `install_nav`).
   `clear_sort_restores_as_inserted_order` in the model. crossterm added as a dev-dep (version-matched
   to rdom-tui) to synthesize the events.
 
+## Shipped — drag-autoscroll adoption (rdom-tui 0.3.11)
+
+A cell-range drag held past the top/bottom edge of a scrollable body (`enable_scrollbar`) now
+**autoscrolls the window in and keeps the rectangle growing** to rows that weren't materialized when
+the drag began — browser parity. Built entirely on the substrate's new opt-in (rdom-tui ≥ 0.3.11,
+`DRAG-AUTOSCROLL`); **no substrate change here** — the autoscroll primitive was already published.
+
+- **Opt-in on press.** The plain (no-modifier) `mousedown` now `set_pointer_capture(table)` +
+  `set_drag_autoscroll(true)` alongside the existing `mouse_drag` flag. `prevent_default` already
+  claims the drag from native text selection (B2 precedence). `mouseup` auto-releases the capture +
+  flag in the substrate.
+- **Coords, not the target node.** Under capture the synthetic drag's `event.target` stays the
+  captured `<table>` (DOM-standard), so the `mousemove` extend resolves the cell by **clamped
+  coords** (`drag_cell_at`: clamp `client_x/y` into the materialized `mounted_cells` rects → window
+  row → logical row via `window_start`), falling back from the target-node path. The substrate
+  re-windows via the existing decoupled `scroll` listener before each synthetic move, so
+  `window_start` already reflects the revealed rows.
+- **Root-cause fix — single scroll writer during a drag.** `refresh_after_cursor` used to write
+  `scroll_top = cursor.scroll()` in scroll-mode unconditionally. During an autoscroll drag that
+  **clobbered** the substrate's `scroll_top` every tick (the cursor's `follow` only scrolls enough
+  to keep the cursor visible → 0), settling at a stuck fixed point where the window never advanced.
+  Fixed by gating the cursor-follow scroll write on `!mouse_drag`: while a pointer drag is live the
+  pointer/autoscroll owns `scroll_top`; cursor-follow scrolling is for **keyboard** nav only (a
+  browser doesn't re-drive scroll from the caret while you drag-select). Just re-asserts the
+  highlight mid-drag instead.
+- Tests: `tests/mouse.rs` `drag_past_the_edge_autoscrolls_and_extends_the_selection` (8 total) —
+  press a top cell, drag-hold at the bottom edge, `advance(50)` ×8, assert the selection grew beyond
+  the initial window + a previously-off-screen row is selected + no further scroll after release.
+  Runs against the **published** rdom-tui 0.3.11 (no path patch).
+
 ## Roadmap (not yet done)
 
 - **Column ops:** all shipped (sort / reorder / hide-show + show/hide dropdown / resize). Future: the full Table

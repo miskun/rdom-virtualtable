@@ -26,7 +26,7 @@ use rdom_tui::layout::{Border, BorderStyle, UserSelect};
 use rdom_tui::runtime::builtins::table::size_columns;
 use rdom_tui::{
     Color, Display, ListenerOptions, MouseButton, NodeId, Overflow, Padding, Size, Stylesheet,
-    TuiAccessors, TuiAccessorsMut, TuiDom, TuiNodeMutExt, TuiStyle, Value,
+    TuiAccessors, TuiAccessorsMut, TuiDom, TuiNodeExt, TuiNodeMutExt, TuiStyle, Value,
 };
 
 use crate::grid_cursor::{GridCursor, Nav, nav_for_key};
@@ -364,6 +364,20 @@ impl VirtualTableView {
         // re-highlight. If the cursor stayed within the current window (no
         // scroll change) the listener won't fire, so re-highlight here.
         if self.scroll_mode.get() {
+            // Single scroll writer: during a pointer drag, the scroll position is
+            // driven by the pointer — and by the substrate's drag-autoscroll once
+            // the pointer reaches the viewport edge (DRAG-AUTOSCROLL). The
+            // cursor-follow write here is for *keyboard* navigation (an arrow key
+            // pushing the cursor off-window scrolls to follow it). Re-driving
+            // scroll from the cursor mid-drag would clobber the autoscroll's
+            // `scroll_top` every tick, settling at a stuck fixed point where the
+            // window never advances. So while a mouse drag is live, leave
+            // `scroll_top` alone and just re-assert the highlight onto whatever
+            // window the autoscroll's `scroll` listener last materialized.
+            if self.mouse_drag.get() {
+                self.apply_highlight(dom);
+                return;
+            }
             let scrolled = after.scroll() != self.window_start.get();
             if let Some(tbody) = self.tbody.get() {
                 let _ = dom.node_mut(tbody).set_scroll_top(after.scroll() as i32);
@@ -561,6 +575,65 @@ impl VirtualTableView {
         self.header_cells.borrow().iter().position(|&id| id == th)
     }
 
+    /// Map screen coords to a logical `(row, col)`, **clamped into the
+    /// materialized window** — the drag-extend path. Under autoscroll the
+    /// pointer is beyond the viewport edge (no cell under it), so this resolves
+    /// the cell by coordinate against the mounted cell rects instead of the
+    /// event target. The resolved row's window index is translated to a logical
+    /// row via `window_start` (which the autoscroll's `scroll` event updated).
+    fn drag_cell_at(&self, dom: &TuiDom, cx: i32, cy: i32) -> Option<(usize, usize)> {
+        let cells = self.mounted_cells.borrow();
+        let n = cells.len();
+        if n == 0 {
+            return None;
+        }
+        let row_rect = |r: usize| {
+            cells
+                .get(r)
+                .and_then(|row| row.first())
+                .and_then(|&id| dom.node(id).layout_rect())
+        };
+        // Clamp cy into the mounted rows' vertical band, find the row it lands in.
+        let top = row_rect(0)?.y;
+        let last = row_rect(n - 1)?;
+        let cyc = cy.clamp(top, (last.y + last.height as i32 - 1).max(top));
+        let mut row = n - 1;
+        for r in 0..n {
+            if let Some(rr) = row_rect(r)
+                && cyc < rr.y + rr.height as i32
+            {
+                row = r;
+                break;
+            }
+        }
+        // Column: the last visible cell in that row whose left edge is <= cx
+        // (breaking at the containing one); cx clamped to the first visible cell.
+        let row_cells = &cells[row];
+        let first_left = row_cells.iter().find_map(|&id| {
+            dom.node(id)
+                .layout_rect()
+                .filter(|r| r.width > 0)
+                .map(|r| r.x)
+        })?;
+        let cxc = cx.max(first_left);
+        let mut col = 0usize;
+        for (c, &id) in row_cells.iter().enumerate() {
+            let Some(r) = dom.node(id).layout_rect() else {
+                continue;
+            };
+            if r.width == 0 {
+                continue; // hidden column
+            }
+            if cxc >= r.x {
+                col = c;
+            }
+            if cxc < r.x + r.width as i32 {
+                break;
+            }
+        }
+        Some((self.window_start.get() + row, col))
+    }
+
     /// Re-materialize the currently-shown window (same start + count) — call
     /// after mutating the model via [`with`](Self::with) so the DOM reflects
     /// the change. No-op before [`mount`](Self::mount).
@@ -661,7 +734,13 @@ impl VirtualTableView {
     /// - **Shift+click** extends the selection range to the clicked cell.
     /// - **Ctrl/⌘+click** toggles the clicked cell/row in the selection.
     /// - **Press + drag** rubber-bands a range from the press cell to the cell
-    ///   under the cursor.
+    ///   under the cursor. When the body is scrollable
+    ///   ([`enable_scrollbar`](Self::enable_scrollbar)), dragging past the top
+    ///   or bottom edge **autoscrolls** the window in and keeps the rectangle
+    ///   growing to rows that weren't materialized when the drag began — the
+    ///   substrate drives this via pointer capture + its drag-autoscroll tick
+    ///   (rdom-tui ≥ 0.3.11; see `DRAG-AUTOSCROLL`). The press captures the
+    ///   pointer on the `<table>` and arms autoscroll; `mouseup` releases it.
     ///
     /// The selection gestures (drag / Shift / Ctrl) need a selection mode
     /// ([`set_selection_mode`](Self::set_selection_mode)); plain clicks and sort
@@ -697,6 +776,14 @@ impl VirtualTableView {
             } else {
                 view.set_cursor_at(ctx.dom, row, col);
                 view.mouse_drag.set(true);
+                // Capture the pointer so the drag keeps coming when the cursor
+                // leaves the table, and opt into edge autoscroll so dragging
+                // past the viewport scrolls + keeps selecting (DRAG-AUTOSCROLL).
+                // `prevent_default` below claims the drag from text selection.
+                if let Some(table) = view.table.get() {
+                    let _ = ctx.dom.set_pointer_capture(table);
+                    ctx.dom.set_drag_autoscroll(true);
+                }
             }
             ctx.event.prevent_default(); // suppress the default text-selection drag
             ctx.request_redraw();
@@ -717,10 +804,17 @@ impl VirtualTableView {
                 view.mouse_drag.set(false);
                 return;
             }
-            let Some(target) = ctx.event.target else {
-                return;
-            };
-            if let Some((row, col)) = view.data_cell_of(ctx.dom, target)
+            // Resolve the target cell: the node under the pointer if it's a
+            // body cell, else by COORDS clamped into the window. The coords path
+            // is what handles a captured drag (target is the table, not a cell)
+            // and autoscroll (the synthetic move is beyond the edge — nothing
+            // under it).
+            let cell = ctx
+                .event
+                .target
+                .and_then(|t| view.data_cell_of(ctx.dom, t))
+                .or_else(|| view.drag_cell_at(ctx.dom, m.client_x, m.client_y));
+            if let Some((row, col)) = cell
                 && view.extend_selection_to(ctx.dom, row, col)
             {
                 ctx.request_redraw();

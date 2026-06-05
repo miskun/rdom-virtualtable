@@ -13,4 +13,4 @@ readme = "README.md"
 [dependencies]
 # Public rdom-tui surface only (native <table>, element/text builders,
 # column sync). No path dep, no private hooks.
-rdom-tui = "0.3.9"  # 0.3.9+: half-block borders weld across elements (quadrant join) + painted content occludes lower borders → the column-chooser chip welds into the panel as one tab-panel outline `▟█▌` (HALFBLOCK-JOIN-1, BORDER-Z-OCCLUDE-1)
+rdom-tui = "0.3.10"  # 0.3.10+: drop_subtree of sibling-dirtied absolute children is safe (CASCADE-FREED-ROOT-1) — the chooser tab can be dropped on close instead of display-toggled

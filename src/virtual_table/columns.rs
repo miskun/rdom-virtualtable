@@ -148,12 +148,6 @@ impl VirtualTableView {
         dom.node_mut(th).set_width(Size::Fixed(CHIP_WIDTH));
         dom.append_child(header_tr, th).unwrap();
         self.overflow_chip.set(Some(th));
-        // The welded tab box — created once, kept hidden until the menu opens.
-        let tab = dom.create_element("div");
-        dom.node_mut(tab)
-            .set_inline_style(Self::menu_tab_style(false));
-        dom.append_child(th, tab).unwrap();
-        self.menu_tab.set(Some(tab));
         if let Some(table) = self.table.get() {
             size_columns(dom, table);
         }
@@ -167,9 +161,8 @@ impl VirtualTableView {
     /// box with left/right/bottom half-block borders, `height: 2` so its content
     /// row sits over the chip (`…` shows through) and its bottom border row
     /// coincides with the panel's top border row — the half-block joiner then
-    /// welds tab+panel into one tab-panel outline. `visible == false` hides it
-    /// (`display:none`) so a closed chip looks normal and contributes no border.
-    fn menu_tab_style(visible: bool) -> TuiStyle {
+    /// welds tab+panel into one tab-panel outline.
+    fn menu_tab_style() -> TuiStyle {
         let mut s = TuiStyle::new()
             .width(Size::Fixed(CHIP_WIDTH))
             .height(Size::Fixed(2))
@@ -184,9 +177,6 @@ impl VirtualTableView {
         s.top = Some(Value::Specified(Length::Cells(0)));
         s.right = Some(Value::Specified(Length::Cells(0)));
         s.z_index = Some(Value::Specified(ZIndex::Value(MENU_Z + 1)));
-        if !visible {
-            s.display = Some(Value::Specified(Display::None));
-        }
         s
     }
 
@@ -222,11 +212,14 @@ impl VirtualTableView {
         let _ = dom.set_attribute(menu, MENU_ATTR, "");
         dom.append_child(chip, menu).unwrap();
         self.column_menu.set(Some(menu));
-        // Reveal the welded tab box so it bridges the chip into the panel.
-        if let Some(tab) = self.menu_tab.get() {
-            dom.node_mut(tab)
-                .set_inline_style(Self::menu_tab_style(true));
-        }
+        // Welded tab box bridging the chip into the panel — born with the menu,
+        // dropped with it. A 3-wide box with left/right/bottom half-block borders
+        // whose bottom border row coincides with the panel's top border row, so
+        // the half-block joiner welds tab+panel into one tab-panel outline.
+        let tab = dom.create_element("div");
+        dom.node_mut(tab).set_inline_style(Self::menu_tab_style());
+        dom.append_child(chip, tab).unwrap();
+        self.menu_tab.set(Some(tab));
         // Mark the chip active (highlighted as the panel's tab) AND the table
         // (the default sheet suppresses the cursor cross-hair + selection while
         // a dropdown is open, so focus rests on the chooser).
@@ -245,10 +238,11 @@ impl VirtualTableView {
         if let Some(menu) = self.column_menu.take() {
             let _ = dom.drop_subtree(menu);
         }
-        // Hide the welded tab box (kept in the tree, toggled — not dropped).
-        if let Some(tab) = self.menu_tab.get() {
-            dom.node_mut(tab)
-                .set_inline_style(Self::menu_tab_style(false));
+        // Drop the welded tab box too (safe since rdom-tui 0.3.10's
+        // CASCADE-FREED-ROOT-1 fix — dropping the panel marks this sibling
+        // dirty, then we drop it; the freed root no longer crashes the cascade).
+        if let Some(tab) = self.menu_tab.take() {
+            let _ = dom.drop_subtree(tab);
         }
         if let Some(chip) = self.overflow_chip.get() {
             let _ = dom.remove_attribute(chip, MENU_OPEN_ATTR);

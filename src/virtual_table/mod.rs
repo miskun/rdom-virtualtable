@@ -90,10 +90,10 @@ pub struct VirtualTableView {
     column_menu: Rc<Cell<Option<NodeId>>>,
     /// The welded "tab" box over the chip — a bordered box whose bottom edge
     /// coincides with the panel's top row, so `join_borders` welds chip-tab and
-    /// panel into one tab-panel outline. Created once with `enable_column_actions`
-    /// and kept in the tree (`display:none` while closed), toggled visible while
-    /// the menu is open — toggling display avoids dropping an absolute subtree
-    /// each close (which trips a stale-node deref in the incremental cascade).
+    /// panel into one tab-panel outline. Born with the menu on open and dropped
+    /// with it on close (`None` while closed). A sibling of the panel, not inside
+    /// it (it must anchor to the chip, above the panel), so it's dropped
+    /// separately — safe since rdom-tui 0.3.10 (`CASCADE-FREED-ROOT-1`).
     menu_tab: Rc<Cell<Option<NodeId>>>,
     /// Index of the highlighted row in the open dropdown (into the current
     /// hidden-columns list). Meaningful only while the menu is open; reset to 0

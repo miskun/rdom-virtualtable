@@ -161,13 +161,28 @@ impl VirtualTableView {
         let text = dom.create_text_node("…");
         dom.append_child(th, text).unwrap();
         let _ = dom.set_attribute(th, OVERFLOW_ATTR, "");
-        // `position: relative` makes the chip the containing block for the
-        // absolutely-positioned dropdown, so the affordance is self-contained
-        // inside the table subtree. Narrow fixed width so it doesn't grab flex
-        // space. (rdom-tui ≥ 0.3.7 fixes the stale-anon-box double-paint a
-        // relative chip + dropped absolute child used to trigger.)
-        let mut s = TuiStyle::new();
-        s.position = Some(Value::Specified(Position::Relative));
+        // Pin the actions column to the table's right edge as fixed chrome.
+        // The header row is the containing block (`position: relative`) and the
+        // chip is taken OUT of its flex flow (`position: absolute; right: 0`),
+        // so the data columns flow + size normally on the left while the chip
+        // stays a static `CHIP_WIDTH` flush against the right edge — independent
+        // of which/how many data columns are shown or resized. (An auto-margin
+        // doesn't help: `size_columns` drives column widths through the table
+        // layout path, leaving the flex row no free space for it to absorb.)
+        // The chip is still a positioned element, so its dropdown / welded tab
+        // — absolute children — anchor to it as before. (rdom-tui ≥ 0.3.7 fixes
+        // the stale-anon-box double-paint a positioned chip + dropped absolute
+        // child used to trigger.)
+        let mut trs = TuiStyle::new();
+        trs.position = Some(Value::Specified(Position::Relative));
+        dom.node_mut(header_tr).set_inline_style(trs);
+
+        // Explicit height: out of flow, the chip no longer inherits the header
+        // row's `height: 1`, and absolute auto-height doesn't measure its text.
+        let mut s = TuiStyle::new().height(Size::Fixed(1));
+        s.position = Some(Value::Specified(Position::Absolute));
+        s.top = Some(Value::Specified(Length::Cells(0)));
+        s.right = Some(Value::Specified(Length::Cells(0)));
         dom.node_mut(th).set_inline_style(s);
         dom.node_mut(th).set_width(Size::Fixed(CHIP_WIDTH));
         dom.append_child(header_tr, th).unwrap();

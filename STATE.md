@@ -274,6 +274,15 @@ way to exercise the substrate.
 - **Opt-in, persistent.** `enable_column_actions(dom)` mounts the `…` chip once (no more reactive
   create/drop tied to the hidden set) and installs the click + `change` listeners. A table that
   doesn't call it pays nothing. The chip is still not a model column.
+- **Right-pinned (fixed chrome).** The chip is taken out of the header row's flex flow
+  (`position: absolute; right: 0` against a `position: relative` header `<tr>`) so it sits a static
+  `CHIP_WIDTH` flush against the table's right edge — independent of which/how many data columns are
+  shown or resized — while the data columns flow normally on the left. A flex auto-margin was tried
+  first but doesn't work here: `size_columns` drives column widths through the table layout path,
+  leaving the flex row no free space for the margin to absorb. Pinned by
+  `render_columns_menu::actions_chip_pins_to_the_table_right_edge`. (Assumes the table fills its
+  container — the normal case for a `display:block` table; a shrink-wrapped narrower-than-data table
+  would overlap, not a supported config.)
 - **Chooser lists ALL columns, built like HTML.** Each row is `<label data-vt-menu-item
   data-vt-col=N><input type="checkbox" [checked]> Name</label>`. The native checkbox renders the
   `[x]`/`[ ]` glyph (UA `::before`) and toggles itself on click (the `<label>` forwards the click via

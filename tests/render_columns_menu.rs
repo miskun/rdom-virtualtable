@@ -147,6 +147,51 @@ fn chip_is_not_a_model_column() {
     assert_eq!(ths, 4, "3 model headers + 1 chip");
 }
 
+#[test]
+fn actions_chip_pins_to_the_table_right_edge() {
+    // The actions column is chrome, not data: it stays a static CHIP_WIDTH and
+    // pins flush to the table's right edge (via `margin-left: auto` on the flex
+    // header row), instead of trailing right after the last data column.
+    let view = grid(3);
+    let (mut dom, table) = mounted(&view);
+    let vp = Rect::new(0, 0, 40, 12);
+    dom.cascade(&highlight_stylesheet());
+    dom.layout_dom(vp);
+
+    let table_rect = dom.node(table).layout_rect().expect("table laid out");
+    assert_eq!(table_rect.width, 40, "block table fills the viewport width");
+
+    let chip = find_attr(&dom, table, "data-vt-overflow").expect("chip present");
+    let chip_rect = dom.node(chip).layout_rect().expect("chip laid out");
+    assert_eq!(chip_rect.width, 3, "chip keeps a static CHIP_WIDTH");
+    assert_eq!(
+        chip_rect.x + chip_rect.width as i32,
+        table_rect.x + table_rect.width as i32,
+        "chip's right edge is flush with the table's right edge"
+    );
+
+    // A gap separates the (narrow) data columns from the right-pinned chip — it
+    // didn't merely trail the content.
+    let tr = header_tr(&dom, table);
+    let data_ths: Vec<NodeId> = dom
+        .node(tr)
+        .children()
+        .filter(|c| c.node_name() == "th" && c.get_attribute("data-vt-overflow").is_none())
+        .map(|c| c.id())
+        .collect();
+    let data_right = data_ths
+        .iter()
+        .filter_map(|&id| dom.node(id).layout_rect())
+        .map(|r| r.x + r.width as i32)
+        .max()
+        .expect("data columns laid out");
+    assert!(
+        chip_rect.x > data_right,
+        "a gap separates data columns (end {data_right}) from the chip (x {})",
+        chip_rect.x
+    );
+}
+
 // ── Chooser contents ────────────────────────────────────────────────
 
 #[test]

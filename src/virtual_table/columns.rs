@@ -249,16 +249,20 @@ impl VirtualTableView {
             .map(|(_, l, _)| l.chars().count())
             .max()
             .unwrap_or(0);
-        let width = (CHECKBOX_W + label_w as u16).saturating_add(2).max(1);
-        // One row per column + one for the half-block bottom edge (which the
-        // border occupies its own cell row in the border-box).
+        // content (checkbox + label) + `padding: 0 1` (2) + the half-block
+        // left/right border cells (2).
+        let width = (CHECKBOX_W + label_w as u16).saturating_add(4).max(1);
+        // One row per column + one for the half-block bottom edge (each border
+        // occupies its own cell in the border-box).
         let height = (cols.len() as u16).max(1) + 1;
-        // Soft bottom edge: a half-block bottom border drawn in the panel's own
-        // bg color over a transparent cell, so the panel reads as if it spills a
-        // half-cell past its last row (the bottom half of `▀` shows the body
-        // beneath). The half-block paint skips the cell bg automatically.
+        // Soft edges: half-block left/right/bottom borders drawn in the panel's
+        // own bg color over transparent cells, so the panel reads as if it
+        // spills a half-cell past each edge (the outer half of `▐`/`▌`/`▀` shows
+        // the content beneath). The half-block paint skips the cell bg itself.
         let edge = Border {
             bottom: BorderStyle::HalfBlock,
+            left: BorderStyle::HalfBlock,
+            right: BorderStyle::HalfBlock,
             ..Border::none()
         };
         let mut s = TuiStyle::new()

@@ -13,15 +13,21 @@
 /// key string lets consumers build their own keymaps over the same moves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Nav {
+    /// Move the cursor up one row.
     Up,
+    /// Move the cursor down one row.
     Down,
+    /// Move the cursor one column left.
     Left,
+    /// Move the cursor one column right.
     Right,
     /// Jump to the first row (web `Home` / vim `g`).
     Top,
     /// Jump to the last row (web `End` / vim `G`).
     Bottom,
+    /// Move up one page (the viewport height).
     PageUp,
+    /// Move down one page (the viewport height).
     PageDown,
 }
 

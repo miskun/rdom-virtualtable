@@ -19,10 +19,13 @@ use std::time::Duration;
 pub struct RowKey(Arc<str>);
 
 impl RowKey {
+    /// Build a key from anything convertible to `Arc<str>` (a `String`,
+    /// `&str`, or an existing `Arc<str>`).
     pub fn new(s: impl Into<Arc<str>>) -> Self {
         Self(s.into())
     }
 
+    /// The key as a string slice.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -57,9 +60,13 @@ impl std::fmt::Display for RowKey {
 /// what each level means.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StatusLevel {
+    /// Healthy / nominal.
     Ok,
+    /// Informational.
     Info,
+    /// Needs attention.
     Warn,
+    /// Failed / critical.
     Error,
 }
 
@@ -81,7 +88,9 @@ impl StatusLevel {
 /// deliberately deferred until a column needs them).
 #[derive(Clone, Debug, PartialEq)]
 pub enum CellValue {
+    /// No value — renders blank, sorts before everything.
     Empty,
+    /// Plain text (the default; what a bare `&str`/`String` becomes).
     Text(String),
     /// Unit-less number; formatting (precision, unit suffix) is the renderer's
     /// or consumer's job — the model only needs the value for sort + display.
@@ -93,7 +102,9 @@ pub enum CellValue {
     Duration(Duration),
     /// Text plus a severity the renderer can colour.
     Status {
+        /// The displayed text.
         text: String,
+        /// The severity the renderer maps to a `data-vt-status` attribute.
         level: StatusLevel,
     },
 }
@@ -162,11 +173,14 @@ impl From<String> for CellValue {
 /// One row: stable identity + cells in the table's column order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
+    /// Stable row identity (drives selection + windowed patching).
     pub key: RowKey,
+    /// The row's cells, in the table's current column order.
     pub cells: Vec<CellValue>,
 }
 
 impl Row {
+    /// Build a row from a key (anything `Into<RowKey>`) and its cells.
     pub fn new(key: impl Into<RowKey>, cells: Vec<CellValue>) -> Self {
         Self {
             key: key.into(),
@@ -188,11 +202,22 @@ impl Row {
 pub enum Delta {
     /// Full snapshot for `start..start + rows.len()` — a window resync.
     /// Replaces the window buffer for that range.
-    Resync { start: usize, rows: Vec<Row> },
+    Resync {
+        /// Absolute index of the first row in `rows`.
+        start: usize,
+        /// The window's rows, in order from `start`.
+        rows: Vec<Row>,
+    },
     /// Rows changed or entered the window — replace/insert by [`RowKey`].
-    Upsert { rows: Vec<Row> },
+    Upsert {
+        /// The changed rows, matched in place by their `key`.
+        rows: Vec<Row>,
+    },
     /// Rows left the window — drop by [`RowKey`].
-    Remove { keys: Vec<RowKey> },
+    Remove {
+        /// Keys of the rows that left the window.
+        keys: Vec<RowKey>,
+    },
 }
 
 // ── display formatters (lean; consumers can pre-format into Text instead) ──

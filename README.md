@@ -1,5 +1,9 @@
 # rdom-virtualtable
 
+[![crates.io](https://img.shields.io/crates/v/rdom-virtualtable.svg)](https://crates.io/crates/rdom-virtualtable)
+[![docs.rs](https://img.shields.io/docsrs/rdom-virtualtable)](https://docs.rs/rdom-virtualtable)
+![license](https://img.shields.io/crates/l/rdom-virtualtable.svg)
+
 A **virtualized table** for [rdom](https://github.com/miskun/rdom), the browser-faithful DOM for
 terminal applications.
 
@@ -15,6 +19,8 @@ materializes **only the visible row window**. A dataset of any size renders a bo
 rdom-virtualtable = "0.1"
 rdom-tui = "0.3.14"
 ```
+
+Requires Rust 1.85+ (edition 2024).
 
 ## Try it
 
@@ -106,9 +112,10 @@ the `<tr>` of any selected row) — same focus-gated, `:where()`-defaulted, full
 contract as the cursor. Query a cell with `view.is_cell_selected(row, col)`.
 
 Selection is keyed by **row identity**, not position, so it **survives sorting, scrolling, and live
-updates** — a selected row stays selected wherever the new order puts it. For huge/windowed data
-`Ctrl-A` is a predicate (`all` minus an `except` set) rather than an enumerated set; inspect it via
-`view.selection()` (`is_all` / `explicit` / `except`) and enumerate the matching rows in your source.
+updates** — a selected row stays selected wherever the new order puts it. `view.selected_row_keys()`
+returns the explicitly-selected rows (de-duplicated by identity) for bulk actions. For huge/windowed
+data `Ctrl-A` is a predicate (`all` minus an `except` set) rather than an enumerated set; check
+`view.selection()` (`is_all` / `except`) and enumerate the matching rows in your source.
 
 ## Sort
 

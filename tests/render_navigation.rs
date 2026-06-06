@@ -643,3 +643,30 @@ fn highlight_survives_focus_on_the_scroll_tbody() {
         "the cursor highlight must still paint when focus is on the scroll <tbody>, not the <table>"
     );
 }
+
+#[test]
+fn selected_row_keys_dedupes_by_row() {
+    let view = grid(20, 3);
+    let mut dom = TuiDom::new();
+    let root = dom.root();
+    let table = view.mount(&mut dom);
+    dom.append_child(root, table).unwrap();
+    view.set_viewport_rows(8);
+    view.show_window(&mut dom, 0, 8);
+    view.set_selection_mode(SelectionMode::Cell);
+    // Three toggled cells across two rows (row 0 in two columns, row 5 once).
+    view.toggle_at(&mut dom, 0, 0);
+    view.toggle_at(&mut dom, 0, 2);
+    view.toggle_at(&mut dom, 5, 1);
+    let mut keys: Vec<String> = view
+        .selected_row_keys()
+        .iter()
+        .map(|k| k.to_string())
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        ["0", "5"],
+        "two unique rows despite three toggled cells"
+    );
+}

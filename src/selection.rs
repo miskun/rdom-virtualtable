@@ -71,6 +71,7 @@ pub struct GridSelection {
 }
 
 impl GridSelection {
+    /// An empty selection in the given mode.
     pub fn new(mode: SelectionMode) -> Self {
         Self {
             mode,
@@ -78,6 +79,7 @@ impl GridSelection {
         }
     }
 
+    /// The current selection mode.
     pub fn mode(&self) -> SelectionMode {
         self.mode
     }

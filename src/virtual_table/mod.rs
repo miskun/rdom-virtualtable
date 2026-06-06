@@ -143,6 +143,8 @@ pub struct VirtualTableView {
 }
 
 impl VirtualTableView {
+    /// Wrap a [`VirtualTable`] in a shareable view. Call [`mount`](Self::mount)
+    /// to build its `<table>` subtree, then [`show_window`](Self::show_window).
     pub fn new(table: VirtualTable) -> Self {
         Self {
             inner: Rc::new(RefCell::new(table)),
@@ -879,6 +881,24 @@ impl VirtualTableView {
             .is_some_and(|k| self.selection.borrow().is_selected(row, col, &k))
     }
 
+    /// The [`RowKey`](crate::RowKey)s explicitly in the selection, de-duplicated
+    /// (a row selected in several columns appears once). This is the *enumerable*
+    /// part — for a `Ctrl-A` predicate selection, also check
+    /// [`selection()`](Self::selection)'s [`is_all`](GridSelection::is_all) /
+    /// [`except`](GridSelection::except) and enumerate the matching rows in your
+    /// source. Order is unspecified.
+    pub fn selected_row_keys(&self) -> Vec<RowKey> {
+        let sel = self.selection.borrow();
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for (key, _col) in sel.explicit() {
+            if seen.insert(key.clone()) {
+                out.push(key.clone());
+            }
+        }
+        out
+    }
+
     /// Extend the selection by moving the cursor (Shift+arrow): the range
     /// anchors at the pre-move cursor and its head follows. No-op when the
     /// mode is `None`.
@@ -1330,6 +1350,12 @@ impl VirtualTableView {
 
     /// Borrow the model mutably to update columns/rows. After changing
     /// data, call [`show_window`](Self::show_window) again to re-render.
+    ///
+    /// **In-memory mode only.** This is the escape hatch for the resident model
+    /// (e.g. a custom `sort_by_with`). In windowed mode the model is empty and
+    /// the view is driven by [`apply`](Self::apply) / [`set_total`](Self::set_total);
+    /// mutating the model with `with` then would desync the window buffer and the
+    /// layout-change notifications — don't.
     pub fn with<R>(&self, f: impl FnOnce(&mut VirtualTable) -> R) -> R {
         f(&mut self.inner.borrow_mut())
     }

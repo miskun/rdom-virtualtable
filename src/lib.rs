@@ -192,6 +192,8 @@
 //! layout edit so a consumer can save it, and
 //! [`restore_state`](VirtualTableView::restore_state) re-applies a saved one.
 
+#![deny(missing_docs)]
+
 mod data;
 mod grid_cursor;
 mod model;

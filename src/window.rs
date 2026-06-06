@@ -34,8 +34,12 @@ use crate::model::SortDir;
 /// re-request" via [`invalidate`](crate::VirtualTableView::invalidate).
 #[derive(Clone, Debug)]
 pub struct WindowRequest {
+    /// The window epoch to echo back through `apply` (stale epochs are dropped).
     pub epoch: u64,
+    /// The absolute row range to fetch — the visible window plus a prefetch
+    /// margin.
     pub range: Range<usize>,
+    /// The sort to apply, in priority order (currently 0 or 1 entry).
     pub sort: Vec<SortSpec>,
 }
 
@@ -43,7 +47,9 @@ pub struct WindowRequest {
 /// (stable across column reorder, unlike the positional index) and a direction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SortSpec {
+    /// The column's header text (its stable identity).
     pub column: String,
+    /// The sort direction.
     pub dir: SortDir,
 }
 
@@ -66,6 +72,7 @@ pub struct WindowBuffer {
 }
 
 impl WindowBuffer {
+    /// An empty buffer (no rows, total 0, epoch 0).
     pub fn new() -> Self {
         Self::default()
     }

@@ -17,8 +17,11 @@ use crate::window::SortSpec;
 /// (`None` = content-auto), and whether it's `hidden`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ColumnState {
+    /// The column's header text (its stable identity across reorders).
     pub header: String,
+    /// Explicit width, or `None` for content-auto.
     pub width: Option<u16>,
+    /// Whether the column is hidden.
     pub hidden: bool,
 }
 
@@ -28,6 +31,8 @@ pub struct ColumnState {
 /// and consumed by [`restore_state`](crate::VirtualTableView::restore_state).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TableState {
+    /// The columns in display order, each with its width + hidden flag.
     pub columns: Vec<ColumnState>,
+    /// The active sort, or `None` if unsorted.
     pub sort: Option<SortSpec>,
 }

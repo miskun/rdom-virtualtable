@@ -16,11 +16,14 @@ use crate::data::{CellValue, Row, RowKey};
 /// the column auto-sizes to its widest cell).
 #[derive(Clone, Debug)]
 pub struct Column {
+    /// The header label.
     pub header: String,
+    /// An explicit fixed width, or `None` to auto-size to the widest cell.
     pub width: Option<u16>,
 }
 
 impl Column {
+    /// A column with the given header and auto width.
     pub fn new(header: impl Into<String>) -> Self {
         Self {
             header: header.into(),
@@ -28,6 +31,7 @@ impl Column {
         }
     }
 
+    /// Set an explicit fixed width (builder style).
     pub fn with_width(mut self, width: u16) -> Self {
         self.width = Some(width);
         self
@@ -37,7 +41,9 @@ impl Column {
 /// Sort direction for [`VirtualTable::sort_by`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SortDir {
+    /// Smallest first.
     Ascending,
+    /// Largest first.
     Descending,
 }
 
@@ -67,6 +73,7 @@ pub struct VirtualTable {
 }
 
 impl VirtualTable {
+    /// A new table with the given columns and no rows.
     pub fn new(columns: Vec<Column>) -> Self {
         Self {
             columns,
@@ -109,14 +116,17 @@ impl VirtualTable {
             .push(Row::new(RowKey::from(id.to_string()), cells));
     }
 
+    /// Number of resident rows.
     pub fn row_count(&self) -> usize {
         self.rows.len()
     }
 
+    /// Whether the table has no rows.
     pub fn is_empty(&self) -> bool {
         self.rows.is_empty()
     }
 
+    /// The columns, in display order.
     pub fn columns(&self) -> &[Column] {
         &self.columns
     }

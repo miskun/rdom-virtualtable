@@ -1,7 +1,7 @@
 //! Sort contract at the DOM/paint level: sorting reorders the materialized
 //! window, marks the sorted header with `data-sort="asc|desc"` and a ▲/▼ glyph
-//! in the header text, and clears the selection (it's row-index-keyed, so it's
-//! meaningless after a reorder).
+//! in the header text, and *preserves* the identity-keyed selection (a selected
+//! row stays selected as the reorder moves it — `SPEC_DATA_SOURCE.md` §8).
 
 use rdom_tui::render::{Buffer, LayoutExt, PaintExt, Rect};
 use rdom_tui::style::{CascadeExt, Stylesheet};
@@ -143,18 +143,30 @@ fn sort_marks_the_header_and_toggles_direction_and_column() {
 }
 
 #[test]
-fn sort_clears_the_index_keyed_selection() {
+fn sort_preserves_the_identity_keyed_selection() {
+    // Rows "b","a","c" get synthetic keys "0","1","2" by insertion order.
     let view = view_with(&[&["b"], &["a"], &["c"]], 1);
     let mut dom = TuiDom::new();
     let _table = mounted(&view, &mut dom, 8);
     view.set_selection_mode(SelectionMode::Cell);
-    view.select_all(&mut dom);
-    assert!(view.selection().is_active(), "selection set");
+    // Select the row showing "a" — at index 1 before sorting (key "1").
+    view.toggle_at(&mut dom, 1, 0);
+    assert!(view.is_cell_selected(1, 0), "‘a’ selected at index 1");
 
     view.sort(&mut dom, 0, SortDir::Ascending);
+    // Ascending: "a","b","c" → the "a" row (key "1") is now at index 0. The
+    // selection follows identity (`SPEC_DATA_SOURCE.md` §8), not position.
     assert!(
-        !view.selection().is_active(),
-        "sorting clears the selection (it's keyed by row index)"
+        view.selection().is_active(),
+        "selection survives the re-sort"
+    );
+    assert!(
+        view.is_cell_selected(0, 0),
+        "the selected row followed its identity to index 0"
+    );
+    assert!(
+        !view.is_cell_selected(1, 0),
+        "the different row now at index 1 is not selected"
     );
 }
 

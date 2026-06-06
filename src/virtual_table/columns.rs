@@ -56,15 +56,16 @@ impl VirtualTableView {
     /// Sort by `col` in `dir`, re-materialize the visible window in the new
     /// order, and mark the header (`data-sort="asc|desc"`, which the default
     /// sheet turns into a `▲`/`▼` glyph). The cursor keeps its position; the
-    /// **selection is cleared** — it's keyed by row index, which now points at
-    /// different data after the reorder. Pass a custom comparator by calling
-    /// [`VirtualTable::sort_by_with`] via [`with`](Self::with) then
+    /// **selection is preserved** — it's keyed by row *identity*
+    /// ([`RowKey`](crate::RowKey)), so a selected row stays selected as the
+    /// reorder moves it (`SPEC_DATA_SOURCE.md` §8). Pass a custom comparator by
+    /// calling [`VirtualTable::sort_by_with`] via [`with`](Self::with) then
     /// [`refresh`](Self::refresh) yourself.
     pub fn sort(&self, dom: &mut TuiDom, col: usize, dir: SortDir) {
         self.inner.borrow_mut().sort_by(col, dir);
-        self.selection.borrow_mut().clear();
         // Windowed mode: the sort is *requested* — drop the stale rows so the
         // refresh re-fetches with the new sort (in-memory mode re-sorts locally).
+        // The identity-keyed selection survives either way.
         self.reset_window_for_refetch();
         // Mark the header (and append the glyph to its text) *before* refresh,
         // so `size_columns` measures the glyph and the column is wide enough.
@@ -97,11 +98,10 @@ impl VirtualTableView {
     }
 
     /// Clear the sort and restore the as-inserted row order (the "off" state of
-    /// [`cycle_sort`](Self::cycle_sort)). Clears the header indicator and the
-    /// selection (row indices now point at different data).
+    /// [`cycle_sort`](Self::cycle_sort)). Clears the header indicator; the
+    /// identity-keyed selection is preserved across the reorder (§8).
     pub fn clear_sort(&self, dom: &mut TuiDom) {
         self.inner.borrow_mut().clear_sort();
-        self.selection.borrow_mut().clear();
         self.reset_window_for_refetch();
         self.apply_sort_indicator(dom);
         self.refresh(dom);

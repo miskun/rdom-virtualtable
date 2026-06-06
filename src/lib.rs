@@ -73,8 +73,9 @@
 //! `Esc`. Selection is
 //! reflected as **`data-selected`** on each selected `<td>` (and the `<tr>` of
 //! any row with a selection), styled by the same focus-gated, `:where()`
-//! defaults; query it with [`VirtualTableView::selection`] →
-//! [`GridSelection::is_selected`].
+//! defaults. Query a positional cell with
+//! [`VirtualTableView::is_cell_selected`] (it resolves the row's identity);
+//! inspect the mode / predicate via [`VirtualTableView::selection`].
 //!
 //! ## Sort
 //!
@@ -85,8 +86,9 @@
 //! The sorted header carries **`data-sort="asc|desc"`** (the CSS contract) plus
 //! a `▲`/`▼` glyph (configurable via
 //! [`set_sort_glyphs`](VirtualTableView::set_sort_glyphs) — use narrow glyphs
-//! if your terminal renders ambiguous-width characters double-width). Sorting
-//! clears the selection (it's keyed by row index).
+//! if your terminal renders ambiguous-width characters double-width). The
+//! selection is keyed by row *identity*, so it survives a re-sort — a selected
+//! row stays selected as the new order moves it.
 //!
 //! ## Column reorder
 //!

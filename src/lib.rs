@@ -50,7 +50,9 @@
 //! - `data-active-cell` on the single `<td>` at the cursor.
 //!
 //! [`highlight_stylesheet`] gives a ready-made, **focus-gated** cross-hair
-//! (the highlight only shows while the table is focused); [`highlight_rules`]
+//! (the highlight shows while the table *region* is focused — gated on
+//! `:focus-within`, so it survives focus moving to the scrollable `<tbody>`);
+//! [`highlight_rules`]
 //! exposes the same `(selector, style)` pairs to fold into your own sheet.
 //! The default rules are wrapped in `:where()` so they carry **zero
 //! specificity** — any author rule of any specificity overrides them, exactly

@@ -601,3 +601,45 @@ fn space_commits_a_shift_range_and_builds_multiple_ranges() {
         "the gap between ranges is unselected"
     );
 }
+
+#[test]
+fn highlight_survives_focus_on_the_scroll_tbody() {
+    // Regression for the "click past the last column kills the highlight" bug.
+    // Clicking the empty body area moves focus from <table> to the focusable
+    // scroll <tbody> (a descendant). The focus-gated highlight must still paint
+    // — it's gated on `:focus-within`, not `:focus`, so focus anywhere in the
+    // table region keeps the cross-hair visible.
+    let view = grid(20, 3);
+    let mut dom = TuiDom::new();
+    let root = dom.root();
+    let table = view.mount(&mut dom);
+    dom.append_child(root, table).unwrap();
+    dom.node_mut(table).set_attribute("tabindex", "0").ok();
+    view.set_viewport_rows(8);
+    view.enable_scrollbar(&mut dom); // makes <tbody> a focusable scroll container
+    view.show_window(&mut dom, 0, 8);
+    view.navigate(&mut dom, Nav::Down); // cursor at row 1 → highlight attrs written
+
+    // Focus the <tbody>, NOT the <table> — what the substrate does when you
+    // click the scroll area past the last column.
+    let tbody = dom
+        .node(table)
+        .children()
+        .find(|c| c.node_name() == "tbody")
+        .map(|c| c.id())
+        .expect("table has a tbody");
+    dom.set_focused(Some(tbody));
+
+    // The cursor cell paints #2d2f31 when the highlight is active.
+    let cursor_bg = Color::Rgb(0x2d, 0x2f, 0x31);
+    let n = count_bg(
+        &mut dom,
+        &highlight_stylesheet(),
+        Rect::new(0, 0, 40, 12),
+        cursor_bg,
+    );
+    assert!(
+        n > 0,
+        "the cursor highlight must still paint when focus is on the scroll <tbody>, not the <table>"
+    );
+}

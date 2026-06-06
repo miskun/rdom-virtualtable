@@ -1230,9 +1230,17 @@ fn set_flag(dom: &mut TuiDom, id: NodeId, attr: &str, on: bool) {
 }
 
 /// The default highlight selectors + styles for the cursor, focus-gated so
-/// the highlight only shows while the table is focused. Returned as
+/// the highlight only shows while the table region is focused. Returned as
 /// `(selector, style)` pairs so consumers can fold them into an existing
 /// sheet or tweak the colors.
+///
+/// **Gated on `:focus-within`, not `:focus`** — with `enable_scrollbar` the
+/// `<tbody>` is itself a focusable scroll container, so clicking the body
+/// (e.g. the empty area past the last column) moves focus from the `<table>`
+/// to the `<tbody>`. A `table:focus` gate would drop the highlight there (and
+/// keep it dropped, since a subsequent cell click `prevent_default`s the
+/// focus-on-click); `table:focus-within` keeps it lit whenever focus rests
+/// anywhere inside the table.
 ///
 /// The contract is three presence attributes the view writes:
 /// - `data-active-row` on the `<tr>` under the cursor,
@@ -1264,7 +1272,7 @@ fn set_flag(dom: &mut TuiDom, id: NodeId, attr: &str, on: bool) {
 /// overriding a browser UA style. Requires rdom-tui ≥ 0.3.4.
 ///
 /// The cursor/selection rules are also gated on
-/// **`table:focus:not([data-vt-menu-open])`** — while the column chooser is open
+/// **`table:focus-within:not([data-vt-menu-open])`** — while the column chooser is open
 /// the view stamps `data-vt-menu-open` on the `<table>`, so the cross-hair +
 /// selection step aside and focus rests on the dropdown.
 pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
@@ -1289,49 +1297,49 @@ pub fn highlight_rules() -> Vec<(&'static str, TuiStyle)> {
         // setting it on the table covers every cell.
         ("table", TuiStyle::new().user_select(UserSelect::None)),
         (
-            ":where(table:focus:not([data-vt-menu-open]) tr[data-active-row])",
+            ":where(table:focus-within:not([data-vt-menu-open]) tr[data-active-row])",
             TuiStyle::new().bg(line),
         ),
         (
-            ":where(table:focus:not([data-vt-menu-open]) th[data-active-col])",
+            ":where(table:focus-within:not([data-vt-menu-open]) th[data-active-col])",
             TuiStyle::new().bg(line),
         ),
         (
-            ":where(table:focus:not([data-vt-menu-open]) td[data-active-col])",
+            ":where(table:focus-within:not([data-vt-menu-open]) td[data-active-col])",
             TuiStyle::new().bg(line),
         ),
         (
-            ":where(table:focus:not([data-vt-menu-open]) td[data-selected])",
+            ":where(table:focus-within:not([data-vt-menu-open]) td[data-selected])",
             TuiStyle::new().bg(selected),
         ),
         // Selection ∩ row/column highlight → the blend (listed after the plain
         // selection so it wins on the intersection; all rules are equal
         // zero-specificity `:where()`, so source order decides).
         (
-            ":where(table:focus:not([data-vt-menu-open]) td[data-selected][data-active-col])",
+            ":where(table:focus-within:not([data-vt-menu-open]) td[data-selected][data-active-col])",
             TuiStyle::new().bg(selected_line),
         ),
         (
-            ":where(table:focus:not([data-vt-menu-open]) tr[data-active-row] td[data-selected])",
+            ":where(table:focus-within:not([data-vt-menu-open]) tr[data-active-row] td[data-selected])",
             TuiStyle::new().bg(selected_line),
         ),
         // The cursor cell wins last, so it stays visible inside a selection.
         // Gray normally; a brighter blue when the cursor cell is itself
         // selected (it sits in the blue field, so blue fits).
         (
-            ":where(table:focus:not([data-vt-menu-open]) td[data-active-cell])",
+            ":where(table:focus-within:not([data-vt-menu-open]) td[data-active-cell])",
             TuiStyle::new().bg(cell_gray),
         ),
         (
-            ":where(table:focus:not([data-vt-menu-open]) td[data-active-cell][data-selected])",
+            ":where(table:focus-within:not([data-vt-menu-open]) td[data-active-cell][data-selected])",
             TuiStyle::new().bg(cell_blue),
         ),
         // Focused-scroll affordance (rdom `FOCUS-VOCAB-1`): a focused scroll
-        // region shows an accent (DodgerBlue) thumb glyph. The substrate's UA
-        // `:focus-within::scrollbar-thumb` can't fire for `enable_scrollbar`
-        // because the scroll container (`<tbody>`) is a *child* of the focused
-        // `<table>` (focus is on the parent, not within the tbody) — so bridge
-        // it: when the table holds focus, accent its body scrollbar thumb.
+        // region shows an accent (DodgerBlue) thumb glyph. Gated on
+        // `table:focus-within tbody` so it accents the body scrollbar thumb
+        // whenever focus rests anywhere in the table — whether on the `<table>`
+        // itself (keyboard) or on the `<tbody>` scroll container (after a click
+        // in the body), matching the cross-hair's `:focus-within` gate above.
         (
             ":where(table:focus-within tbody)::scrollbar-thumb",
             TuiStyle::new().fg(Color::Rgb(30, 144, 255)),

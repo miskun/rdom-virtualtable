@@ -11,7 +11,14 @@ categories = ["command-line-interface"]
 readme = "README.md"
 # Ship only the crate + its docs/examples; keep internal design docs
 # (specs/, STATE.md, agent guides) out of the published tarball.
-include = ["src/**/*.rs", "examples/**/*.rs", "README.md", "CHANGELOG.md", "LICENSE"]
+include = [
+    "src/**/*.rs",
+    "examples/**/*.rs",
+    "tests/**/*.rs",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+]
 
 [dependencies]
 # Public rdom-tui surface only (native <table>, element/text builders,

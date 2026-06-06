@@ -127,11 +127,13 @@
 //! table, wrap it in a `Row`-flex `overflow-x` container (a `<table>` can't be
 //! its own cross-axis scroll container).
 
+mod data;
 mod grid_cursor;
 mod model;
 mod selection;
 mod virtual_table;
 
+pub use data::{CellValue, Delta, Row, RowKey, StatusLevel};
 pub use grid_cursor::{GridCursor, Nav, nav_for_key};
 pub use model::{Column, SortDir, VirtualTable};
 pub use selection::{GridSelection, SelectionMode};

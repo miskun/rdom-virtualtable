@@ -95,18 +95,9 @@ impl WindowBuffer {
         self.epoch
     }
 
-    /// First absolute index the buffer covers.
-    pub fn start(&self) -> usize {
-        self.start
-    }
-
     /// Number of buffered slots (loaded or placeholder).
     pub fn len(&self) -> usize {
         self.slots.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.slots.is_empty()
     }
 
     /// Replace the buffered window with `rows`, covering
@@ -167,11 +158,6 @@ impl WindowBuffer {
         self.row_at(index).map(|r| &r.key)
     }
 
-    /// Absolute index of `key`, if it's currently in the window.
-    pub fn index_of(&self, key: &RowKey) -> Option<usize> {
-        self.by_key.get(key).copied()
-    }
-
     /// Is `index` a loaded (non-placeholder) row within the buffered span?
     pub fn is_loaded(&self, index: usize) -> bool {
         self.row_at(index).is_some()
@@ -196,16 +182,14 @@ mod tests {
     }
 
     #[test]
-    fn set_window_indexes_by_position_and_key() {
+    fn set_window_indexes_by_absolute_position() {
         let mut b = WindowBuffer::new();
         b.set_window(10, vec![row("a", "A"), row("b", "B"), row("c", "C")]);
-        assert_eq!(b.start(), 10);
         assert_eq!(b.len(), 3);
         assert_eq!(b.row_at(10).map(|r| r.key.clone()), Some("a".into()));
         assert_eq!(b.row_at(12).map(|r| r.key.clone()), Some("c".into()));
         assert_eq!(b.key_at(11), Some(&"b".into()));
-        assert_eq!(b.index_of(&"c".into()), Some(12));
-        assert_eq!(b.index_of(&"z".into()), None);
+        assert_eq!(b.row_at(9), None, "below the start offset");
     }
 
     #[test]
@@ -225,10 +209,8 @@ mod tests {
         let mut b = WindowBuffer::new();
         b.set_window(0, vec![row("a", "A"), row("b", "B")]);
         b.set_window(100, vec![row("x", "X")]);
-        assert_eq!(b.start(), 100);
         assert_eq!(b.len(), 1);
-        assert_eq!(b.index_of(&"a".into()), None, "old keys dropped");
-        assert_eq!(b.index_of(&"x".into()), Some(100));
+        assert_eq!(b.row_at(100).map(|r| r.key.clone()), Some("x".into()));
         assert!(!b.is_loaded(0), "old window no longer covered");
     }
 
@@ -257,14 +239,14 @@ mod tests {
         assert!(b.upsert(row("b", "B2")), "key in window → patched");
         assert_eq!(b.row_at(1).map(|r| r.cell(0).display()), Some("B2".into()));
         assert!(!b.upsert(row("z", "Z")), "key not in window → ignored (N2)");
-        assert_eq!(b.index_of(&"z".into()), None);
+        assert_eq!(b.len(), 2, "ignored upsert adds no slot");
     }
 
     #[test]
     fn upsert_before_resync_is_a_noop() {
         let mut b = WindowBuffer::new();
         assert!(!b.upsert(row("a", "A")), "no Resync yet → nothing to patch");
-        assert!(b.is_empty());
+        assert_eq!(b.len(), 0);
     }
 
     #[test]
@@ -273,7 +255,6 @@ mod tests {
         b.set_window(10, vec![row("a", "A"), row("b", "B"), row("c", "C")]);
         assert!(b.remove(&"b".into()));
         assert!(!b.is_loaded(11), "removed slot is now a placeholder");
-        assert_eq!(b.index_of(&"b".into()), None);
         assert!(b.is_loaded(10), "neighbours untouched");
         assert!(b.is_loaded(12));
         assert!(!b.remove(&"b".into()), "second remove is a no-op");
@@ -286,9 +267,9 @@ mod tests {
         b.bump_epoch();
         b.set_window(0, vec![row("a", "A")]);
         b.clear_rows();
-        assert!(b.is_empty());
+        assert_eq!(b.len(), 0);
         assert_eq!(b.total(), 50, "total survives a row clear");
         assert_eq!(b.epoch(), 1, "epoch survives a row clear");
-        assert_eq!(b.index_of(&"a".into()), None);
+        assert!(!b.is_loaded(0), "no rows after clear");
     }
 }

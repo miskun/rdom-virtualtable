@@ -134,6 +134,64 @@
 //! rows (keyboard nav reaches the rest). For **horizontal** scroll of a wide
 //! table, wrap it in a `Row`-flex `overflow-x` container (a `<table>` can't be
 //! its own cross-axis scroll container).
+//!
+//! ## Windowed / live data source (push model)
+//!
+//! Beyond the in-memory model there's a **windowed mode** for datasets too large
+//! or too live to hold resident (the design target: ~100k rows, sorted /
+//! filtered / live-updating over a backend like Observatory). The table holds
+//! an internal window buffer — only the visible slice plus a prefetch margin is
+//! ever materialized — and a consumer **pushes** rows into it. See
+//! `specs/SPEC_DATA_SOURCE.md` for the full contract.
+//!
+//! The contract is four calls:
+//! - [`on_window_change`](VirtualTableView::on_window_change) — register once.
+//!   The table calls it with a [`WindowRequest`] (a fresh `epoch`, the absolute
+//!   `range` to fetch = visible window + prefetch, and the current `sort` as
+//!   [`SortSpec`]s) whenever the visible range, sort, or an `invalidate` changes
+//!   what must be shown. Registering it puts the view in **windowed mode**.
+//! - [`set_total`](VirtualTableView::set_total) — the filtered result size
+//!   (drives the scrollbar extent), from a count query/subscription.
+//! - [`apply`](VirtualTableView::apply)`(epoch, Delta)` — fulfil a request or
+//!   push a live change. The [`Delta`] is `Resync` (a window snapshot),
+//!   `Upsert` (rows changed/in place, by [`RowKey`]), or `Remove`. **Pushes
+//!   whose `epoch` ≠ the current window epoch are dropped**, which is what makes
+//!   out-of-order async results and late deltas from a torn-down subscription
+//!   safe. Slots with no row yet render a `data-vt-loading` placeholder.
+//! - [`invalidate`](VirtualTableView::invalidate) — the consumer's filter
+//!   changed (the table has no filter UI); drop the rows and re-request.
+//!
+//! Identity vs position: the cursor is an **absolute index**; the selection is
+//! **identity** ([`RowKey`]), so a selected row survives scroll / re-sort / live
+//! updates. [`row_key_at`](VirtualTableView::row_key_at) and
+//! [`selection`](VirtualTableView::selection) (→ `is_all` / `explicit` /
+//! `except`) give a consumer what it needs to act on the cursored row or run a
+//! bulk action over the selection (enumerating "select-all" server-side).
+//!
+//! **The async bridge.** This crate is **sync and backend-agnostic** — no
+//! `arrow` / `tokio` / data-engine dependency. A real source is async, so the
+//! consumer bridges it: `on_window_change` hands a [`WindowRequest`] (which is
+//! `Send`) but no DOM, so stash it and run the query on a background runtime;
+//! the result types ([`Delta`] / [`Row`] / [`RowKey`] / [`CellValue`]) are all
+//! `Send`, so build the `Delta` off-thread and deliver it to the UI thread via
+//! rdom-tui's `AppHandle::inject`, where you call `apply(epoch, delta)` with the
+//! DOM in hand. The view itself is `Rc`-based (single-threaded by design); only
+//! the request/response *data* crosses threads. The `windowed_table` example
+//! shows the loop synchronously — swap its `synth()` for the real query.
+//!
+//! **Mode exclusivity.** In-memory mode (`set_rows` / client-side `sort`) and
+//! windowed mode (`apply`) are mutually exclusive on one view: once windowed,
+//! the model is empty and identity resolves from the buffer. Set the viewport
+//! ([`set_viewport_rows`](VirtualTableView::set_viewport_rows)) before
+//! `set_total` so the initial request covers the right range.
+//!
+//! ## Persisting UI state
+//!
+//! [`table_state`](VirtualTableView::table_state) snapshots the column layout
+//! (order, widths, hidden) + active sort as a [`TableState`] (header-keyed);
+//! [`on_state_change`](VirtualTableView::on_state_change) fires it on every
+//! layout edit so a consumer can save it, and
+//! [`restore_state`](VirtualTableView::restore_state) re-applies a saved one.
 
 mod data;
 mod grid_cursor;
@@ -149,4 +207,7 @@ pub use model::{Column, SortDir, VirtualTable};
 pub use selection::{GridSelection, SelectionMode};
 pub use state::{ColumnState, TableState};
 pub use virtual_table::{VirtualTableView, highlight_rules, highlight_stylesheet};
-pub use window::{SortSpec, WindowBuffer, WindowRequest};
+// `WindowBuffer` is intentionally NOT re-exported: it's the renderer's internal
+// store, driven entirely through `set_total` / `apply` / `on_window_change`. The
+// public windowed contract is `WindowRequest` + `SortSpec` (+ `Delta`).
+pub use window::{SortSpec, WindowRequest};

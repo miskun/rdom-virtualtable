@@ -214,8 +214,8 @@ impl VirtualTableView {
     /// Materialize rows `[start, start + count)` into the `<tbody>`,
     /// dropping any previously-materialized rows. No-op before `mount`.
     ///
-    /// In the default in-memory mode this first fills the [`WindowBuffer`] from
-    /// the model's resident slice; in windowed mode (P2) the buffer is already
+    /// In the default in-memory mode this first fills the window buffer from
+    /// the model's resident slice; in windowed mode the buffer is already
     /// filled by `apply`. Either way the rows render *from the buffer*, and a
     /// visible index the buffer has no row for paints a `data-vt-loading`
     /// placeholder rather than a blank or a stale row.
@@ -746,7 +746,7 @@ impl VirtualTableView {
     /// re-apply the highlight.
     ///
     /// **Single scroll authority** (`SCROLL-SINGLE-OWNER-1`): scroll-into-view
-    /// is computed from the *current* window position via [`reveal_scroll`] —
+    /// is computed from the *current* window position via `reveal_scroll` —
     /// the `<tbody>`'s `scroll_top` in native-scrollbar mode, `window_start`
     /// in pure-windowed mode — never from a copy held on the cursor. So:
     /// - a wheel / drag scroll the cursor didn't drive is honored (the next
@@ -856,7 +856,7 @@ impl VirtualTableView {
     }
 
     /// Is the cell at view index `(row, col)` selected? Resolves the row's
-    /// [`RowKey`](crate::RowKey) via [`key_at`](Self::key_at) so the answer
+    /// [`RowKey`](crate::RowKey) via the mode-aware key seam so the answer
     /// follows identity across re-sorts / live updates (`SPEC_DATA_SOURCE.md`
     /// §8). A row index past the loaded data is never selected (no identity to
     /// match).
@@ -1072,7 +1072,7 @@ impl VirtualTableView {
         self.show_window(dom, start, count);
     }
 
-    /// Attach a `keydown` listener to `table` that drives [`navigate`] with
+    /// Attach a `keydown` listener to `table` that drives [`navigate`](Self::navigate) with
     /// the built-in [`nav_for_key`] keymap (arrows, `hjkl`, `g`/`G`,
     /// `Home`/`End`, `PageUp`/`PageDown`). Handled keys are consumed
     /// (`prevent_default`) and trigger a redraw. `viewport_rows` is the

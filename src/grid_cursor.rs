@@ -34,7 +34,7 @@ pub enum Nav {
 ///
 /// The scroll/window position is **not** the cursor's concern — it's owned by
 /// the view (the scroll container's `scroll_top` in native-scrollbar mode, or
-/// `window_start` when windowing without a scrollbar). [`reveal_scroll`]
+/// `window_start` when windowing without a scrollbar). `reveal_scroll`
 /// computes the scroll-into-view offset from that single source of truth.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GridCursor {

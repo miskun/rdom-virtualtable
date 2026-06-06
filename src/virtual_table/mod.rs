@@ -29,9 +29,11 @@ use rdom_tui::{
     TuiAccessors, TuiAccessorsMut, TuiDom, TuiNodeExt, TuiNodeMutExt, TuiStyle, Value,
 };
 
+use crate::data::{Row, RowKey};
 use crate::grid_cursor::{GridCursor, Nav, nav_for_key, reveal_scroll};
 use crate::model::VirtualTable;
 use crate::selection::{GridSelection, SelectionMode};
+use crate::window::WindowBuffer;
 
 /// Column operations (sort / reorder / hide / sort indicator) — `impl
 /// VirtualTableView` blocks kept off this file.
@@ -54,6 +56,16 @@ pub struct VirtualTableView {
     cursor: Rc<Cell<GridCursor>>,
     /// Selection state (configurable mode; off by default).
     selection: Rc<RefCell<GridSelection>>,
+    /// The window buffer the renderer reads (`SPEC_DATA_SOURCE.md` §5). The
+    /// in-memory model fills it from its resident slice on every `show_window`;
+    /// a windowed source (P2) fills it via `apply(epoch, Delta)`. Rendering,
+    /// key resolution, and total all read through here.
+    buffer: Rc<RefCell<WindowBuffer>>,
+    /// `true` once a windowed push source drives the buffer (P2). In windowed
+    /// mode the model is empty, so identity resolution reads the buffer (only
+    /// loaded rows have a key); in the default in-memory mode it reads the model
+    /// (all rows resident, so a key resolves at any index).
+    windowed: Rc<Cell<bool>>,
     /// Visible data-row count — drives scroll-follow and the page step.
     viewport_rows: Rc<Cell<u16>>,
     /// Logical row that materialized pool row 0 currently represents.
@@ -116,6 +128,8 @@ impl VirtualTableView {
             header_cells: Rc::new(RefCell::new(Vec::new())),
             cursor: Rc::new(Cell::new(GridCursor::new())),
             selection: Rc::new(RefCell::new(GridSelection::new(SelectionMode::None))),
+            buffer: Rc::new(RefCell::new(WindowBuffer::new())),
+            windowed: Rc::new(Cell::new(false)),
             viewport_rows: Rc::new(Cell::new(0)),
             window_start: Rc::new(Cell::new(0)),
             nav_active: Rc::new(Cell::new(false)),
@@ -170,71 +184,22 @@ impl VirtualTableView {
 
     /// Materialize rows `[start, start + count)` into the `<tbody>`,
     /// dropping any previously-materialized rows. No-op before `mount`.
+    ///
+    /// In the default in-memory mode this first fills the [`WindowBuffer`] from
+    /// the model's resident slice; in windowed mode (P2) the buffer is already
+    /// filled by `apply`. Either way the rows render *from the buffer*, and a
+    /// visible index the buffer has no row for paints a `data-vt-loading`
+    /// placeholder rather than a blank or a stale row.
     pub fn show_window(&self, dom: &mut TuiDom, start: usize, count: usize) {
         let Some(tbody) = self.tbody.get() else {
             return;
         };
-
-        // Drop the previous window's rows + spacers (frees the arena slots).
-        for id in self.mounted_rows.borrow_mut().drain(..) {
-            let _ = dom.drop_subtree(id);
+        // In-memory mode: copy the model's slice into the buffer + publish the
+        // total. Windowed mode leaves the buffer to the push API.
+        if !self.windowed.get() {
+            self.fill_buffer_from_model(start, count);
         }
-        for id in self.spacers.borrow_mut().drain(..) {
-            let _ = dom.drop_subtree(id);
-        }
-        self.mounted_cells.borrow_mut().clear();
-
-        let total = self.inner.borrow().row_count();
-        let end = (start + count).min(total);
-
-        // Native-scrollbar mode: a top spacer of `start` rows makes the window
-        // sit at the right scroll offset, and top + window + bottom = total, so
-        // the `<tbody>` scroll extent reflects the whole dataset (proportional
-        // thumb) while only the window is materialized.
-        if self.scroll_mode.get() && start > 0 {
-            let sp = self.make_spacer(dom, start);
-            dom.append_child(tbody, sp).unwrap();
-            self.spacers.borrow_mut().push(sp);
-        }
-
-        let model = self.inner.borrow();
-        let ncols = model.columns().len();
-        let span = end.saturating_sub(start);
-        let mut mounted = Vec::with_capacity(span);
-        let mut mounted_cells = Vec::with_capacity(span);
-        for row in &model.rows()[start.min(model.rows().len())..end] {
-            let tr = dom.create_element("tr");
-            let mut row_cells = Vec::with_capacity(ncols);
-            for c in 0..ncols {
-                let td = dom.create_element("td");
-                let value = row.cell(c);
-                let text = dom.create_text_node(&value.display());
-                dom.append_child(td, text).unwrap();
-                if let Some(level) = value.status() {
-                    let _ = dom.set_attribute(td, "data-vt-status", level.as_attr());
-                }
-                if model.is_column_hidden(c) {
-                    set_flag(dom, td, "data-vt-hidden", true);
-                }
-                dom.append_child(tr, td).unwrap();
-                row_cells.push(td);
-            }
-            dom.append_child(tbody, tr).unwrap();
-            mounted.push(tr);
-            mounted_cells.push(row_cells);
-        }
-        drop(model);
-
-        // Bottom spacer for the rows below the window (see top spacer above).
-        if self.scroll_mode.get() && end < total {
-            let sp = self.make_spacer(dom, total - end);
-            dom.append_child(tbody, sp).unwrap();
-            self.spacers.borrow_mut().push(sp);
-        }
-
-        *self.mounted_rows.borrow_mut() = mounted;
-        *self.mounted_cells.borrow_mut() = mounted_cells;
-        self.window_start.set(start);
+        self.render_window(dom, tbody, start, count);
 
         if let Some(table) = self.table.get() {
             // `size_columns` (rdom-tui ≥ 0.3.5) stamps a column-width signature
@@ -249,6 +214,126 @@ impl VirtualTableView {
         if self.nav_active.get() {
             self.apply_highlight(dom);
         }
+    }
+
+    /// In-memory filler: copy the model's `[start, end)` slice into the window
+    /// buffer and publish the model's row count as the buffer total. The
+    /// per-window clone is bounded by the viewport (~tens of rows), not the
+    /// dataset.
+    fn fill_buffer_from_model(&self, start: usize, count: usize) {
+        let model = self.inner.borrow();
+        let total = model.row_count();
+        let end = (start + count).min(total);
+        let rows: Vec<Row> = if start < end {
+            model.rows()[start..end].to_vec()
+        } else {
+            Vec::new()
+        };
+        drop(model);
+        let mut buf = self.buffer.borrow_mut();
+        buf.set_total(total);
+        buf.set_window(start, rows);
+    }
+
+    /// Render the visible window `[start, start + count)` from the buffer:
+    /// drop the previous rows + spacers, materialize one `<tr>` per visible
+    /// index (real cells when the buffer has the row, a `data-vt-loading`
+    /// placeholder when it doesn't), and bracket the window with scroll spacers
+    /// so the thumb reflects the buffer total.
+    fn render_window(&self, dom: &mut TuiDom, tbody: NodeId, start: usize, count: usize) {
+        // Drop the previous window's rows + spacers (frees the arena slots).
+        for id in self.mounted_rows.borrow_mut().drain(..) {
+            let _ = dom.drop_subtree(id);
+        }
+        for id in self.spacers.borrow_mut().drain(..) {
+            let _ = dom.drop_subtree(id);
+        }
+        self.mounted_cells.borrow_mut().clear();
+
+        let total = self.buffer.borrow().total();
+        let end = (start + count).min(total);
+
+        // Native-scrollbar mode: a top spacer of `start` rows makes the window
+        // sit at the right scroll offset, and top + window + bottom = total, so
+        // the `<tbody>` scroll extent reflects the whole dataset (proportional
+        // thumb) while only the window is materialized.
+        if self.scroll_mode.get() && start > 0 {
+            let sp = self.make_spacer(dom, start);
+            dom.append_child(tbody, sp).unwrap();
+            self.spacers.borrow_mut().push(sp);
+        }
+
+        // Column config (count + hidden flags) is resident in both modes.
+        let hidden: Vec<bool> = {
+            let model = self.inner.borrow();
+            (0..model.columns().len())
+                .map(|c| model.is_column_hidden(c))
+                .collect()
+        };
+        let ncols = hidden.len();
+        let span = end.saturating_sub(start);
+        let mut mounted = Vec::with_capacity(span);
+        let mut mounted_cells = Vec::with_capacity(span);
+        for vi in start..end {
+            let tr = dom.create_element("tr");
+            let mut row_cells = Vec::with_capacity(ncols);
+            // Resolve the row's cells up front so the buffer borrow doesn't span
+            // the DOM mutations below.
+            let cells: Option<Vec<(String, Option<&'static str>)>> =
+                self.buffer.borrow().row_at(vi).map(|row| {
+                    (0..ncols)
+                        .map(|c| {
+                            let v = row.cell(c);
+                            (v.display(), v.status().map(|l| l.as_attr()))
+                        })
+                        .collect()
+                });
+            match cells {
+                Some(cells) => {
+                    for (c, (text, status)) in cells.into_iter().enumerate() {
+                        let td = dom.create_element("td");
+                        let tn = dom.create_text_node(&text);
+                        dom.append_child(td, tn).unwrap();
+                        if let Some(level) = status {
+                            let _ = dom.set_attribute(td, "data-vt-status", level);
+                        }
+                        if hidden[c] {
+                            set_flag(dom, td, "data-vt-hidden", true);
+                        }
+                        dom.append_child(tr, td).unwrap();
+                        row_cells.push(td);
+                    }
+                }
+                None => {
+                    // Placeholder row: a position in the visible range the buffer
+                    // hasn't loaded yet. `data-vt-loading` lets consumer CSS paint
+                    // a shimmer; the cell is empty, never stale.
+                    for &is_hidden in &hidden {
+                        let td = dom.create_element("td");
+                        let _ = dom.set_attribute(td, "data-vt-loading", "");
+                        if is_hidden {
+                            set_flag(dom, td, "data-vt-hidden", true);
+                        }
+                        dom.append_child(tr, td).unwrap();
+                        row_cells.push(td);
+                    }
+                }
+            }
+            dom.append_child(tbody, tr).unwrap();
+            mounted.push(tr);
+            mounted_cells.push(row_cells);
+        }
+
+        // Bottom spacer for the rows below the window (see top spacer above).
+        if self.scroll_mode.get() && end < total {
+            let sp = self.make_spacer(dom, total - end);
+            dom.append_child(tbody, sp).unwrap();
+            self.spacers.borrow_mut().push(sp);
+        }
+
+        *self.mounted_rows.borrow_mut() = mounted;
+        *self.mounted_cells.borrow_mut() = mounted_cells;
+        self.window_start.set(start);
     }
 
     /// Set the number of visible data rows. This drives scroll-follow (how
@@ -455,13 +540,27 @@ impl VirtualTableView {
         self.selection.borrow().clone()
     }
 
+    /// Resolve a view index to its row identity. In-memory mode reads the model
+    /// (all rows resident → a key resolves at any index); windowed mode reads
+    /// the buffer (only loaded rows have a key — an index off the loaded window
+    /// is `None`). The single seam every identity lookup (selection, highlight)
+    /// goes through, so the two modes differ in exactly one place.
+    fn key_at(&self, index: usize) -> Option<RowKey> {
+        if self.windowed.get() {
+            self.buffer.borrow().key_at(index).cloned()
+        } else {
+            self.inner.borrow().rows().get(index).map(|r| r.key.clone())
+        }
+    }
+
     /// Is the cell at view index `(row, col)` selected? Resolves the row's
-    /// [`RowKey`](crate::RowKey) from the model so the answer follows identity
-    /// across re-sorts / live updates (`SPEC_DATA_SOURCE.md` §8). A row index
-    /// past the loaded data is never selected (no identity to match).
+    /// [`RowKey`](crate::RowKey) via [`key_at`](Self::key_at) so the answer
+    /// follows identity across re-sorts / live updates (`SPEC_DATA_SOURCE.md`
+    /// §8). A row index past the loaded data is never selected (no identity to
+    /// match).
     pub fn is_cell_selected(&self, row: usize, col: usize) -> bool {
-        let key = self.inner.borrow().rows().get(row).map(|r| r.key.clone());
-        key.is_some_and(|k| self.selection.borrow().is_selected(row, col, &k))
+        self.key_at(row)
+            .is_some_and(|k| self.selection.borrow().is_selected(row, col, &k))
     }
 
     /// Extend the selection by moving the cursor (Shift+arrow): the range
@@ -487,11 +586,12 @@ impl VirtualTableView {
     pub fn toggle_selection(&self, dom: &mut TuiDom) {
         let c = self.cursor.get();
         {
-            let model = self.inner.borrow();
             let mut sel = self.selection.borrow_mut();
-            if !sel.toggle_range(|r| model.rows().get(r).map(|row| row.key.clone())) {
-                if let Some(row) = model.rows().get(c.row()) {
-                    sel.toggle(row.key.clone(), c.col());
+            // `key_at` resolves each index per the active mode (model or buffer);
+            // it borrows a *different* RefCell than `sel`, so no borrow conflict.
+            if !sel.toggle_range(|r| self.key_at(r)) {
+                if let Some(key) = self.key_at(c.row()) {
+                    sel.toggle(key, c.col());
                 }
             }
         }
@@ -571,7 +671,7 @@ impl VirtualTableView {
             .get()
             .at(row.min(rows - 1), col.min(cols - 1), rows, cols);
         self.cursor.set(after);
-        if let Some(key) = self.inner.borrow().rows().get(row).map(|r| r.key.clone()) {
+        if let Some(key) = self.key_at(row) {
             self.selection.borrow_mut().toggle(key, col);
         }
         self.refresh_after_cursor(dom, after);
@@ -880,7 +980,6 @@ impl VirtualTableView {
         let cursor = self.cursor.get();
         let start = self.window_start.get();
         let sel = self.selection.borrow();
-        let model = self.inner.borrow();
 
         for (c, &th) in self.header_cells.borrow().iter().enumerate() {
             set_flag(dom, th, "data-active-col", c == cursor.col());
@@ -892,7 +991,7 @@ impl VirtualTableView {
             let vrow = start + i;
             let row_active = vrow == cursor.row();
             set_flag(dom, tr, "data-active-row", row_active);
-            let key = model.rows().get(vrow).map(|r| r.key.clone());
+            let key = self.key_at(vrow);
             let mut row_selected = false;
             if let Some(row_cells) = cells.get(i) {
                 for (c, &td) in row_cells.iter().enumerate() {

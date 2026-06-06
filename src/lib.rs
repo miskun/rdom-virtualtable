@@ -136,9 +136,11 @@ mod grid_cursor;
 mod model;
 mod selection;
 mod virtual_table;
+mod window;
 
 pub use data::{CellValue, Delta, Row, RowKey, StatusLevel};
 pub use grid_cursor::{GridCursor, Nav, nav_for_key};
 pub use model::{Column, SortDir, VirtualTable};
 pub use selection::{GridSelection, SelectionMode};
 pub use virtual_table::{VirtualTableView, highlight_rules, highlight_stylesheet};
+pub use window::WindowBuffer;

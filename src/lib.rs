@@ -139,10 +139,9 @@
 //!
 //! Beyond the in-memory model there's a **windowed mode** for datasets too large
 //! or too live to hold resident (the design target: ~100k rows, sorted /
-//! filtered / live-updating over a backend like Observatory). The table holds
-//! an internal window buffer — only the visible slice plus a prefetch margin is
-//! ever materialized — and a consumer **pushes** rows into it. See
-//! `specs/SPEC_DATA_SOURCE.md` for the full contract.
+//! filtered / live-updating over a SQL or streaming backend). The table holds an
+//! internal window buffer — only the visible slice plus a prefetch margin is
+//! ever materialized — and a consumer **pushes** rows into it.
 //!
 //! The contract is four calls:
 //! - [`on_window_change`](VirtualTableView::on_window_change) — register once.

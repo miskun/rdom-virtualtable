@@ -6,7 +6,7 @@
 //! window as `data-selected` attributes that CSS targets (same contract shape
 //! as the `data-active-*` cursor).
 //!
-//! **Identity, not position (`SPEC_DATA_SOURCE.md` §8).** The *durable*
+//! **Identity, not position.** The *durable*
 //! selection — the individually toggled cells and the `Ctrl-A` predicate — is
 //! keyed by [`RowKey`], so a selected row stays selected as it scrolls,
 //! re-sorts, or is live-updated under it. Only the *transient* shift-extend
@@ -96,8 +96,8 @@ impl GridSelection {
     }
 
     /// Is the `all` predicate (`Ctrl-A`) active? Bulk actions consult this plus
-    /// [`except`](Self::except) and ask the source to enumerate server-side
-    /// (`SPEC_DATA_SOURCE.md` §8).
+    /// [`except`](Self::except) and ask the source to enumerate the matching
+    /// rows server-side (the only sane "select all" over a windowed dataset).
     pub fn is_all(&self) -> bool {
         self.all
     }

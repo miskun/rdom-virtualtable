@@ -26,12 +26,11 @@ version independently.
 
 ## Shipped — keyboard navigation + cursor highlight (M1)
 
-Ported from the lens-k8s-tui table best practices, *consumer-first*: built entirely on rdom-tui
-0.3's public API (keyboard events, attributes, CSS), no substrate changes. lens implements this as
-a native `<vtable>` builtin in its rdom fork (custom layout/paint owns scrollbar, h-scroll, column
-mode); we deliberately took the incremental path — nav + CSS highlight now, and any feature that
-genuinely needs custom layout/paint (scrollbar, horizontal scroll, column resize) becomes a focused,
-documented rdom enhancement when we hit it (the same loop that drove rdom 0.3.0–0.3.2).
+Built *consumer-first*: entirely on rdom-tui 0.3's public API (keyboard events, attributes, CSS), no
+substrate changes. We deliberately took the incremental path — nav + CSS highlight now, and any
+feature that genuinely needs custom layout/paint (scrollbar, horizontal scroll, column resize)
+becomes a focused, documented rdom enhancement when we hit it (the same loop that drove rdom
+0.3.0–0.3.2).
 
 - `GridCursor` (pure, `Copy`) — active `(row, col)` + `scroll` over the full dataset; clamped
   `navigate(nav, rows, cols, page)` and a `follow(viewport, rows)` scroll-into-view. `Nav` intent
@@ -415,6 +414,39 @@ container→window — a bidirectional loop the `!mouse_drag` guard only papered
   the stable-column/unclipped-window regression all green. (Background: rdom's `DRAG-AUTOSCROLL.md`
   §"Consumer autoscroll contract" rule 3.)
 
+## Shipped — windowed / live data source + persistence (P1–P4)
+
+The big one: the table can now back a **never-resident** dataset (~100k rows, sorted/filtered/live)
+over a SQL or streaming backend, while staying a generic, sync, backend-agnostic component (only
+`rdom-tui` as a dep — no `arrow`/`tokio`/data-engine coupling). Driven by `specs/SPEC_DATA_SOURCE.md`
+(internal design doc, kept out of the published crate).
+
+- **Data model** (`data.rs`) — `RowKey(Arc<str>)` stable identity, typed `CellValue`
+  (`Empty`/`Text`/`Number`/`Bytes`/`Duration`/`Status`; `&str`/`String` → `Text`), `Row{key,cells}`,
+  and `Delta{Resync,Upsert,Remove}`. `set_rows` assigns a synthetic per-row key so an identity-keyed
+  selection works in-memory too.
+- **Identity-keyed selection** (`selection.rs`) — the durable selection (toggled set + `Ctrl-A`) is
+  keyed by `RowKey`, so it survives scroll / re-sort / live updates; `Ctrl-A` is a predicate
+  (`all` + `except`) for windowed data. The transient shift-rectangle stays positional (collapses on
+  a plain move). Sort no longer clears the selection; column reorder still does (it invalidates the
+  col component of cell keys).
+- **Window buffer + epoch** (`window.rs`) — `WindowBuffer` (crate-internal): rows by index + by key,
+  the known total (drives the scrollbar extent), placeholder slots, and a monotonic window epoch.
+  Two parallel mode seams on the view — `key_at` (identity) and `total_rows` (count) — so in-memory
+  vs windowed differ in exactly one place each.
+- **Push API** — `set_total(dom, total)`, `apply(dom, epoch, Delta)` (epoch-guarded: stale pushes
+  dropped; Resync replaces, Upsert patches by key, Remove → placeholder), `window_epoch()`.
+  `on_window_change(cb)` fires `WindowRequest{epoch, range (window+prefetch), sort}` on scroll/sort/
+  invalidate; `invalidate(dom)` drops rows + re-requests. The async bridge is consumer-side: payloads
+  are `Send`, the view is `Rc`, so build the `Delta` off-thread and `apply` on the UI thread via
+  `AppHandle::inject`.
+- **Persistence** (`state.rs`) — `TableState`/`ColumnState` (header-keyed), `table_state()` snapshot,
+  `on_state_change(cb)` on every layout mutation, `restore_state(dom, &state)` (callback-suppressed).
+- **Example** — `examples/windowed_table.rs`: 100k never-resident rows over a synthetic source;
+  `s` sorts (requested), `u` simulates a live `Upsert`.
+- Tests: `data` / `selection` / `window` units + `push_api` / `window_change` / `windowed_e2e` /
+  `table_state` integration. ~145 total.
+
 ## Roadmap (not yet done)
 
 - **Column ops:** all shipped (sort / reorder / hide-show + show/hide dropdown / resize). Future: the full Table
@@ -437,7 +469,11 @@ container→window — a bidirectional loop the `!mouse_drag` guard only papered
     `layout_children` now clears `anonymous_blocks` at the top. The duplicate-glyph repro was verified
     end-to-end against the relative-chip code; the workaround was reverted to self-contained anchoring
     (above). (Found M7.)
-- Side-loaded data sources; persistence callbacks (sort/order/widths/hidden).
+- **Windowed/live data source + persistence — DONE** (P1–P4, above). ("Side-loaded columns" folded
+  into windowed mode: a windowed source projects expensive per-row data as ordinary columns, so no
+  separate side-load subsystem is needed.)
+- **Per-row action triggers** — the column-actions column's *body* cells (edit / remove / open-in-…
+  per-row dropdowns) are still reserved; only the header chooser is wired.
 
 ## Review gates
 
@@ -451,8 +487,8 @@ Run the Grumpy Chief Architect + Product/API passes at each milestone; record fi
   substrate changes, no new deps. Non-blocking: `navigate` re-windows via full drop+rebuild on slice
   shift (fine at these sizes; an overscan buffer would cut churn — deferred with the scrollbar work).
 - **API:** Cursor reflected as presence attributes = CSS owns the look (no baked colors), matching
-  the lens/`<tree>` pattern; focus-gated default means zero-config-correct out of the box and fully
-  overridable. `install_nav` is one call; `navigate` + `Nav` + `nav_for_key` let consumers BYO
+  rdom's `<tree>` builtin pattern; focus-gated default means zero-config-correct out of the box and
+  fully overridable. `install_nav` is one call; `navigate` + `Nav` + `nav_for_key` let consumers BYO
   keymap. Gate clean (fmt / clippy -D warnings / 22 tests). No blocking findings.
 
 ### M3 gate — column ops (sort + reorder)
@@ -531,3 +567,23 @@ caught the worst issues before any feature code, and a gating prototype validate
   is a CSS contract a consumer can restyle (e.g. collapse instead of remove). Cursor skips hidden
   columns, so keyboard nav never lands on an invisible cell after a move. No blocking findings;
   M3-remaining is now just column *resize* (a substrate ask).
+
+### P1–P4 gate — windowed/live data source + persistence
+
+Full architect + API passes over the windowed work (recorded in detail in
+`specs/SPEC_DATA_SOURCE.md §14`).
+
+- **Architect:** clean layering (pure `data`/`selection`/`window`/`model`/`state`, DOM only in
+  `virtual_table`); two parallel mode seams (`key_at` / `total_rows`); the epoch guard closes the
+  async races; `Send` payloads + an `Rc` view are the right split for a sync UI driven off-thread.
+  **One blocker found + fixed:** cursor/nav/scroll sized off the empty model in windowed mode
+  (`row_count() == 0`) — keyboard nav was pinned at row 0 over windowed data; fixed via the
+  `total_rows()` seam routing all six call sites, regression-tested.
+- **API:** minimal, adapter-shaped public surface (`RowKey`/`CellValue`/`Row`/`Delta` +
+  `WindowRequest`/`SortSpec` + `TableState`/`ColumnState`; `WindowBuffer` internal); the contract +
+  async bridge are documented at the crate root.
+- **Accepted risks (non-blocking):** `VirtualTableView` size (~2100 lines across `mod.rs` +
+  `columns.rs`); the `with(&mut VirtualTable)` escape hatch (in-memory only); callback-panic drops
+  the callback (moot — `App::run` catch_unwind exits cleanly); a `selected_row_keys()` convenience
+  for bulk actions; no separate `DIVERGENCES.md`.
+- Gate clean (fmt / clippy -D warnings / ~145 tests). **CLEARED.**

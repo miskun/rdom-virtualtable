@@ -1,6 +1,6 @@
-//! Persistable table UI state (`SPEC_DATA_SOURCE.md` P4): a snapshot of the
-//! column layout (order, widths, hidden) + the active sort, keyed by column
-//! **header** so it survives reorders and round-trips across sessions.
+//! Persistable table UI state: a snapshot of the column layout (order, widths,
+//! hidden) + the active sort, keyed by column **header** so it survives reorders
+//! and round-trips across sessions.
 //!
 //! The table emits a [`TableState`] whenever the layout changes (via
 //! [`on_state_change`](crate::VirtualTableView::on_state_change)) so a consumer

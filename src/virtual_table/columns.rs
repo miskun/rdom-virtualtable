@@ -58,8 +58,8 @@ impl VirtualTableView {
     /// sheet turns into a `▲`/`▼` glyph). The cursor keeps its position; the
     /// **selection is preserved** — it's keyed by row *identity*
     /// ([`RowKey`](crate::RowKey)), so a selected row stays selected as the
-    /// reorder moves it (`SPEC_DATA_SOURCE.md` §8). Pass a custom comparator by
-    /// calling [`VirtualTable::sort_by_with`] via [`with`](Self::with) then
+    /// reorder moves it. Pass a custom comparator by calling
+    /// [`VirtualTable::sort_by_with`] via [`with`](Self::with) then
     /// [`refresh`](Self::refresh) yourself.
     pub fn sort(&self, dom: &mut TuiDom, col: usize, dir: SortDir) {
         self.inner.borrow_mut().sort_by(col, dir);
@@ -100,7 +100,7 @@ impl VirtualTableView {
 
     /// Clear the sort and restore the as-inserted row order (the "off" state of
     /// [`cycle_sort`](Self::cycle_sort)). Clears the header indicator; the
-    /// identity-keyed selection is preserved across the reorder (§8).
+    /// identity-keyed selection is preserved across the reorder.
     pub fn clear_sort(&self, dom: &mut TuiDom) {
         self.inner.borrow_mut().clear_sort();
         self.reset_window_for_refetch();

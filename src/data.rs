@@ -1,6 +1,6 @@
-//! The data model shared by every row source (`SPEC_DATA_SOURCE.md` §4):
-//! stable row identity ([`RowKey`]), typed cells ([`CellValue`]), a [`Row`],
-//! and the windowed-view change [`Delta`].
+//! The data model shared by every row source: stable row identity ([`RowKey`]),
+//! typed cells ([`CellValue`]), a [`Row`], and the windowed-view change
+//! [`Delta`].
 //!
 //! Pure data — no DOM, no rdom-tui, no async. `CellValue` carries the
 //! type-aware sort comparison used by the in-memory convenience mode; a windowed
@@ -11,10 +11,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Opaque, cheap-to-clone stable row identity. Consumers build it from their
-/// source's primary key (e.g. an Observatory `schema.primary_key` tuple joined
-/// into one string); the table treats it as opaque and only ever compares /
-/// hashes it. `Arc<str>` keeps clone + hash O(1) for the selection set and the
-/// window buffer's key index.
+/// source's primary key (e.g. a database primary-key tuple joined into one
+/// string); the table treats it as opaque and only ever compares / hashes it.
+/// `Arc<str>` keeps clone + hash O(1) for the selection set and the window
+/// buffer's key index.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct RowKey(Arc<str>);
 
@@ -78,7 +78,7 @@ impl StatusLevel {
 /// A typed cell value. `Text` is the default / fallback and what a bare string
 /// becomes. The type drives rich rendering AND the in-memory sort comparison;
 /// extend the enum as real columns demand (Progress / Badge / Link are
-/// deliberately deferred — `SPEC_DATA_SOURCE.md` §12).
+/// deliberately deferred until a column needs them).
 #[derive(Clone, Debug, PartialEq)]
 pub enum CellValue {
     Empty,
@@ -180,12 +180,13 @@ impl Row {
     }
 }
 
-/// A change to the windowed view — mirrors Observatory's `Delta` 1:1 so the
-/// consumer adapter is a straight map. The `epoch` it applies to is passed
-/// alongside it to [`apply`](crate::VirtualTableView::apply), not stored here.
+/// A change to the windowed view — the delta vocabulary a streaming source
+/// emits, so the consumer adapter is a straight map. The `epoch` it applies to
+/// is passed alongside it to [`apply`](crate::VirtualTableView::apply), not
+/// stored here.
 #[derive(Clone, Debug)]
 pub enum Delta {
-    /// Full snapshot for `start..start + rows.len()` (Observatory `Resync`).
+    /// Full snapshot for `start..start + rows.len()` — a window resync.
     /// Replaces the window buffer for that range.
     Resync { start: usize, rows: Vec<Row> },
     /// Rows changed or entered the window — replace/insert by [`RowKey`].

@@ -66,12 +66,12 @@ pub struct VirtualTableView {
     cursor: Rc<Cell<GridCursor>>,
     /// Selection state (configurable mode; off by default).
     selection: Rc<RefCell<GridSelection>>,
-    /// The window buffer the renderer reads (`SPEC_DATA_SOURCE.md` §5). The
-    /// in-memory model fills it from its resident slice on every `show_window`;
-    /// a windowed source (P2) fills it via `apply(epoch, Delta)`. Rendering,
-    /// key resolution, and total all read through here.
+    /// The window buffer the renderer reads. The in-memory model fills it from
+    /// its resident slice on every `show_window`; a windowed source fills it via
+    /// `apply(epoch, Delta)`. Rendering, key resolution, and total all read
+    /// through here.
     buffer: Rc<RefCell<WindowBuffer>>,
-    /// `true` once a windowed push source drives the buffer (P2). In windowed
+    /// `true` once a windowed push source drives the buffer. In windowed
     /// mode the model is empty, so identity resolution reads the buffer (only
     /// loaded rows have a key); in the default in-memory mode it reads the model
     /// (all rows resident, so a key resolves at any index).
@@ -83,9 +83,9 @@ pub struct VirtualTableView {
     on_window_change: Rc<RefCell<Option<WindowChangeCb>>>,
     /// The prefetch range most recently requested via `on_window_change`. Guards
     /// against re-firing the identical request while its result is in flight
-    /// (the table's coalescing — `SPEC_DATA_SOURCE.md` §5).
+    /// (the table's request coalescing).
     last_request: Rc<RefCell<Option<Range<usize>>>>,
-    /// The layout-persistence callback (`on_state_change`, P4): fired whenever
+    /// The layout-persistence callback (`on_state_change`): fired whenever
     /// the column layout or sort changes, so the consumer can save UI state.
     on_state_change: Rc<RefCell<Option<StateChangeCb>>>,
     /// While set, `notify_state_change` is a no-op — used to silence the save
@@ -378,7 +378,7 @@ impl VirtualTableView {
         self.nav_active.set(true);
     }
 
-    // ── Windowed data source (push API; `SPEC_DATA_SOURCE.md` §5) ─────
+    // ── Windowed data source (push API) ──────────────────────────────
 
     /// The current window epoch. A windowed consumer echoes this back through
     /// [`apply`](Self::apply) so stale pushes (out-of-order async results, late
@@ -550,7 +550,7 @@ impl VirtualTableView {
         }
     }
 
-    // ── Persistable UI state (`SPEC_DATA_SOURCE.md` P4) ──────────────
+    // ── Persistable UI state ─────────────────────────────────────────
 
     /// Snapshot the column layout (order, widths, hidden) + the active sort as a
     /// [`TableState`] the consumer can persist. Columns are in display order;
@@ -872,9 +872,8 @@ impl VirtualTableView {
 
     /// Is the cell at view index `(row, col)` selected? Resolves the row's
     /// [`RowKey`](crate::RowKey) via the mode-aware key seam so the answer
-    /// follows identity across re-sorts / live updates (`SPEC_DATA_SOURCE.md`
-    /// §8). A row index past the loaded data is never selected (no identity to
-    /// match).
+    /// follows identity across re-sorts / live updates. A row index past the
+    /// loaded data is never selected (no identity to match).
     pub fn is_cell_selected(&self, row: usize, col: usize) -> bool {
         self.key_at(row)
             .is_some_and(|k| self.selection.borrow().is_selected(row, col, &k))

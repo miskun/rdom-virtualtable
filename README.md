@@ -13,13 +13,17 @@ materializes **only the visible row window**. A dataset of any size renders a bo
 ```toml
 [dependencies]
 rdom-virtualtable = "0.1"
-rdom-tui = "0.3.11"
+rdom-tui = "0.3.14"
 ```
 
 ## Try it
 
 ```bash
-cargo run --example scroll_table   # navigate a 500-row table (arrows/hjkl, g/G), Ctrl-C to quit
+# In-memory: 500-row table — arrows/hjkl, g/G, click/drag-select, header-click sort, Ctrl-C to quit
+cargo run --example scroll_table
+
+# Windowed: 100k never-resident rows — only ~16 materialized; `s` sorts, `u` simulates a live update
+cargo run --example windowed_table
 ```
 
 ## Example
@@ -29,7 +33,8 @@ use rdom_virtualtable::{Column, VirtualTable, VirtualTableView};
 use rdom_tui::TuiDom;
 
 let mut model = VirtualTable::new(vec![Column::new("id"), Column::new("name")]);
-model.set_rows((0..10_000).map(|i| vec![i.to_string(), format!("row-{i}")]).collect());
+// Cells are `CellValue`; a bare `&str`/`String` converts via `.into()`.
+model.set_rows((0..10_000).map(|i| vec![i.to_string().into(), format!("row-{i}").into()]).collect());
 
 let view = VirtualTableView::new(model);
 let mut dom = TuiDom::new();
@@ -98,7 +103,12 @@ the transient selections** — an in-progress Shift-range and a Ctrl-A select-al
 spreadsheet; the explicitly **Space-toggled cells stay** until Esc, so you can navigate between
 cells to build a discontiguous selection by keyboard. Selected cells get **`data-selected`** (and
 the `<tr>` of any selected row) — same focus-gated, `:where()`-defaulted, fully-overridable CSS
-contract as the cursor. Query it with `view.selection().is_selected(row, col)`.
+contract as the cursor. Query a cell with `view.is_cell_selected(row, col)`.
+
+Selection is keyed by **row identity**, not position, so it **survives sorting, scrolling, and live
+updates** — a selected row stays selected wherever the new order puts it. For huge/windowed data
+`Ctrl-A` is a predicate (`all` minus an `except` set) rather than an enumerated set; inspect it via
+`view.selection()` (`is_all` / `explicit` / `except`) and enumerate the matching rows in your source.
 
 ## Sort
 
@@ -116,8 +126,8 @@ view.sort(dom, 0, SortDir::Descending);   // …or sort explicitly
 
 The default comparator is **numeric-aware** (both cells parse as numbers → numeric, else
 lexicographic) and **stable**; pass your own via `VirtualTable::sort_by_with`. The sorted header
-gets **`data-sort="asc|desc"`** (style it however you like) plus a `▲`/`▼` glyph. Sorting clears the
-selection (it's keyed by row index, which now points at different data).
+gets **`data-sort="asc|desc"`** (style it however you like) plus a `▲`/`▼` glyph. Sorting **preserves
+the selection** — it's keyed by row identity, so a selected row follows the data into its new place.
 
 The glyph is configurable via `set_sort_glyphs(asc, desc)` — `▲`/`▼` are East-Asian
 ambiguous-width, so if your terminal renders ambiguous glyphs double-width (shifting later header
@@ -134,7 +144,8 @@ view.move_column(dom, 0, 2); // move column 0 to index 2
 ```
 
 `move_column` permutes the header and every row's cell, the cursor follows its column, and the sort
-indicator stays on the moved column. (Like sort, it clears the selection.)
+indicator stays on the moved column. (It clears the selection — a column reorder invalidates the
+column component of cell-selection keys.)
 
 `set_column_hidden(dom, col, hidden)` hides/shows a column — it gets `data-vt-hidden` (the default
 sheet maps that to `display: none`) on its header + cells, the cursor skips it on horizontal
@@ -187,7 +198,49 @@ the draggable thumb spans the first ~65k rows (keyboard nav reaches the rest).
 For **horizontal** scroll of a wide table, wrap it in a `Row`-flex `overflow-x: auto` container (the
 TUI analogue of `<div style="overflow-x:auto"><table>`); header and body scroll together.
 
+## Windowed / live data source
+
+The examples above keep every row resident in the model. For data that's too large or too live to
+hold in memory — say ~100k rows, sorted/filtered/updating over a SQL or streaming backend — the
+table can run in **windowed mode**: it holds only the visible slice (plus a prefetch margin), and a
+consumer **pushes** rows in.
+
+```rust,ignore
+# use rdom_virtualtable::{VirtualTableView, Delta};
+# use rdom_tui::TuiDom;
+# fn demo(view: &VirtualTableView, dom: &mut TuiDom) {
+view.set_total(dom, 100_000); // scrollbar extent (from a count query/subscription)
+
+// The table asks for a window whenever the visible range / sort / `invalidate` changes.
+view.on_window_change(|req| {
+    // req.epoch, req.range (window + prefetch), req.sort — run your async query, then push back:
+    //   view.apply(dom, req.epoch, Delta::Resync { start: req.range.start, rows });
+    // (echo the epoch — stale results are dropped — and apply on the UI thread)
+});
+# }
+```
+
+- **`apply(dom, epoch, Delta)`** delivers rows: `Resync` (a window snapshot), `Upsert` (rows changed,
+  matched in place by `RowKey`), or `Remove`. A push whose `epoch` ≠ the current window epoch is
+  dropped, so out-of-order async results and late deltas from a torn-down subscription are safe.
+  Slots with no row yet render a `data-vt-loading` placeholder.
+- **`invalidate(dom)`** drops the buffered rows and re-requests (use it when *your* filter changes).
+- **The async bridge:** the crate is sync and backend-agnostic (no `arrow`/`tokio` dependency).
+  `WindowRequest` and the `Delta` payloads are `Send`, so run the query off-thread and deliver the
+  result to the UI thread via rdom-tui's `AppHandle::inject`, calling `apply` there. Cursor nav,
+  selection (by identity), and sort all work over the full total while only the window is loaded. See
+  the `windowed_table` example for the whole loop.
+
+## Persisting layout
+
+`table_state()` snapshots the column layout (order, widths, hidden) + active sort as a header-keyed
+`TableState`; `on_state_change(cb)` fires it on every layout edit so you can save it; and
+`restore_state(dom, &state)` re-applies a saved one on the next launch. The fields are public —
+serialize them however you like (no `serde` dependency baked in).
+
 ## Status
+
+Shipped:
 
 Shipped:
 
@@ -207,8 +260,13 @@ Shipped:
   modal keyboard nav, self-contained overlay. (Body-cell per-row actions: planned.)
 - **Native scrollbar** — opt-in `enable_scrollbar`; proportional thumb (spacer rows), decoupled
   wheel/drag, cursor-follows-on-nav. Horizontal scroll via a `Row`-flex `overflow-x` wrapper.
+- **Windowed / live data source** — `set_total` + `apply(epoch, Delta)` push API, `on_window_change`
+  requests (epoch-guarded, with a prefetch margin) and `invalidate`; identity-keyed selection +
+  index-based cursor over the full total while only the window is materialized.
+- **Persistable layout** — `table_state()` snapshot, `on_state_change` callback, `restore_state`.
 
-Planned: side-loaded data sources; persistence. See `STATE.md`.
+Planned: per-row action triggers in the column-actions column's body cells (the header chooser is
+shipped).
 
 ## License
 

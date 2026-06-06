@@ -1,4 +1,4 @@
-//! The window buffer the renderer reads (`SPEC_DATA_SOURCE.md` §5).
+//! The window buffer the renderer reads.
 //!
 //! The table never materializes more than a *window* of rows. The
 //! [`WindowBuffer`] holds exactly those rows — addressable by absolute index
@@ -8,9 +8,9 @@
 //! Two fillers write it:
 //! - the in-memory [`VirtualTable`](crate::VirtualTable) (default), which copies
 //!   its resident slice into the buffer on every `show_window`; and
-//! - a windowed source (Observatory), which pushes `apply(epoch, Delta)` — added
-//!   in P2; [`set_window`](WindowBuffer::set_window) is the `Resync` primitive it
-//!   builds on.
+//! - a windowed source, which pushes `apply(epoch, Delta)`;
+//!   [`set_window`](WindowBuffer::set_window) is the `Resync` primitive it builds
+//!   on.
 //!
 //! A slot the buffer doesn't have a row for is a **placeholder** (`None`): the
 //! renderer paints a "loading" cell rather than a blank or a stale row. In the
@@ -18,7 +18,7 @@
 //! only appear in windowed mode when a scroll outruns the fetch.
 //!
 //! Pure data — no DOM. The epoch lives here but the *drop-stale-pushes* policy
-//! that uses it lives at the push API (P2); this module only stores + bumps it.
+//! that uses it lives at the push API; this module only stores + bumps it.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -26,13 +26,12 @@ use std::ops::Range;
 use crate::data::{Row, RowKey};
 use crate::model::SortDir;
 
-/// A request from the table for the consumer to (re)fetch a window
-/// (`SPEC_DATA_SOURCE.md` §5). Carries the `epoch` to echo back through
-/// [`apply`](crate::VirtualTableView::apply) (so stale results drop), the
-/// absolute `range` to fetch (the visible window plus a prefetch margin), and
-/// the current `sort` the table owns. No filter — that's consumer-owned (N1);
-/// the table only signals "things changed, re-request" via
-/// [`invalidate`](crate::VirtualTableView::invalidate).
+/// A request from the table for the consumer to (re)fetch a window. Carries the
+/// `epoch` to echo back through [`apply`](crate::VirtualTableView::apply) (so
+/// stale results drop), the absolute `range` to fetch (the visible window plus a
+/// prefetch margin), and the current `sort` the table owns. There is no filter —
+/// filtering is consumer-owned; the table only signals "things changed,
+/// re-request" via [`invalidate`](crate::VirtualTableView::invalidate).
 #[derive(Clone, Debug)]
 pub struct WindowRequest {
     pub epoch: u64,
@@ -56,7 +55,7 @@ pub struct WindowBuffer {
     start: usize,
     /// Rows for `start .. start + slots.len()`; `None` is a placeholder.
     slots: Vec<Option<Row>>,
-    /// `RowKey` → absolute index, for in-place `Upsert`/`Remove` patching (P2)
+    /// `RowKey` → absolute index, for in-place `Upsert`/`Remove` patching
     /// and identity → position lookups. Only keys of loaded (`Some`) slots.
     by_key: HashMap<RowKey, usize>,
     /// Total rows in the (filtered) result — drives the scrollbar extent. May
@@ -88,7 +87,7 @@ impl WindowBuffer {
 
     /// Bump the epoch and return the new value. The table calls this whenever
     /// the visible range / sort / an invalidate changes what must be shown; the
-    /// consumer echoes the returned epoch back through `apply` (P2) so stale
+    /// consumer echoes the returned epoch back through `apply` so stale
     /// pushes can be dropped.
     pub fn bump_epoch(&mut self) -> u64 {
         self.epoch += 1;
@@ -103,8 +102,8 @@ impl WindowBuffer {
     /// Replace the buffered window with `rows`, covering
     /// `start .. start + rows.len()`. This is the `Resync` primitive: it drops
     /// the old coverage entirely and rebuilds the key index. (The in-memory
-    /// filler calls this every `show_window`; P2's `apply(_, Resync)` delegates
-    /// here.)
+    /// filler calls this every `show_window`; the push API's `apply(_, Resync)`
+    /// delegates here.)
     pub fn set_window(&mut self, start: usize, rows: Vec<Row>) {
         self.by_key.clear();
         for (i, row) in rows.iter().enumerate() {
@@ -116,9 +115,9 @@ impl WindowBuffer {
 
     /// Patch a row in place by identity — the `Upsert` primitive. Replaces the
     /// slot of `row.key` if it's currently in the window; returns `false`
-    /// (ignored) for a key not in the window (`SPEC_DATA_SOURCE.md` §5 N2 — a
-    /// row enters via `Resync`, not `Upsert`). An `Upsert` before any `Resync`
-    /// is therefore a no-op (the key index is empty).
+    /// (ignored) for a key not in the window — a row *enters* the window via
+    /// `Resync`, not `Upsert`. An `Upsert` before any `Resync` is therefore a
+    /// no-op (the key index is empty).
     pub fn upsert(&mut self, row: Row) -> bool {
         let Some(&idx) = self.by_key.get(&row.key) else {
             return false;

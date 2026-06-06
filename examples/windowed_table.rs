@@ -21,10 +21,11 @@
 //! `on_window_change` hands a [`WindowRequest`] (epoch + range + sort) but no
 //! DOM, so the request is *enqueued*; the consumer fulfils it where the DOM is
 //! in hand. Here that's synchronous — a "pump" drains the queue right after each
-//! interaction and `apply`s a `Resync`. A real consumer (e.g. Observatory) runs
-//! the query on a background runtime and `apply`s via the App's inject queue;
-//! the only change is *where* the rows come from. The **epoch** the table stamps
-//! and the consumer echoes back makes out-of-order / stale fulfilments safe.
+//! interaction and `apply`s a `Resync`. A real consumer (a SQL / streaming
+//! backend) runs the query on a background runtime and `apply`s via the App's
+//! inject queue; the only change is *where* the rows come from. The **epoch**
+//! the table stamps and the consumer echoes back makes out-of-order / stale
+//! fulfilments safe.
 
 use std::cell::RefCell;
 use std::io;

@@ -4,8 +4,8 @@
 //! logic — it's the unit-tested core that [`VirtualTableView`](crate::VirtualTableView)
 //! materializes a window of into a `<table>` subtree. Rows are [`Row`]s (a
 //! [`RowKey`] + typed [`CellValue`] cells); this is the **in-memory convenience
-//! mode** of the data layer (`SPEC_DATA_SOURCE.md` §7) — a windowed source feeds
-//! the view directly and never touches this type.
+//! mode** of the data layer — a windowed source feeds the view directly (via
+//! `apply`) and never touches this type.
 
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -80,8 +80,8 @@ impl VirtualTable {
     /// Replace all rows. Cells are anything that converts to [`CellValue`] (a
     /// bare `&str`/`String` becomes [`CellValue::Text`]). Each row is assigned a
     /// **synthetic stable [`RowKey`]** (its insertion index) that survives sort
-    /// and filter — see `SPEC_DATA_SOURCE.md` §7 (N4). Consumers with a real key
-    /// use [`set_rows_keyed`](Self::set_rows_keyed).
+    /// and filter, so an identity-keyed selection follows its row. Consumers with
+    /// a real key use [`set_rows_keyed`](Self::set_rows_keyed).
     pub fn set_rows(&mut self, rows: Vec<Vec<CellValue>>) {
         self.orig = (0..rows.len() as u32).collect();
         self.rows = rows

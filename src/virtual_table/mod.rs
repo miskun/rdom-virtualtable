@@ -744,6 +744,14 @@ impl VirtualTableView {
         }
     }
 
+    /// The stable identity ([`RowKey`](crate::RowKey)) of the row at view index
+    /// `row`, or `None` if that row isn't currently loaded (windowed mode, past
+    /// the buffered window). Lets a consumer act on "the cursor's row" — e.g.
+    /// push a live [`Delta::Upsert`](crate::Delta) for it.
+    pub fn row_key_at(&self, row: usize) -> Option<RowKey> {
+        self.key_at(row)
+    }
+
     /// Is the cell at view index `(row, col)` selected? Resolves the row's
     /// [`RowKey`](crate::RowKey) via [`key_at`](Self::key_at) so the answer
     /// follows identity across re-sorts / live updates (`SPEC_DATA_SOURCE.md`

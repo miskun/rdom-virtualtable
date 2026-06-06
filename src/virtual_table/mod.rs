@@ -34,6 +34,7 @@ use crate::data::{Delta, Row, RowKey};
 use crate::grid_cursor::{GridCursor, Nav, nav_for_key, reveal_scroll};
 use crate::model::VirtualTable;
 use crate::selection::{GridSelection, SelectionMode};
+use crate::state::{ColumnState, TableState};
 use crate::window::{SortSpec, WindowBuffer, WindowRequest};
 
 /// Column operations (sort / reorder / hide / sort indicator) — `impl
@@ -43,6 +44,10 @@ mod columns;
 /// The windowed-source callback (`on_window_change`): a boxed `FnMut` the table
 /// calls with a fresh-epoch [`WindowRequest`] whenever the window must refill.
 type WindowChangeCb = Box<dyn FnMut(WindowRequest)>;
+
+/// The layout-persistence callback (`on_state_change`): a boxed `FnMut` the
+/// table calls with the current [`TableState`] whenever the layout changes.
+type StateChangeCb = Box<dyn FnMut(&TableState)>;
 
 /// A shareable handle that owns a [`VirtualTable`] and materializes a
 /// window of it as a `<table>` subtree in a `TuiDom`.
@@ -80,6 +85,12 @@ pub struct VirtualTableView {
     /// against re-firing the identical request while its result is in flight
     /// (the table's coalescing — `SPEC_DATA_SOURCE.md` §5).
     last_request: Rc<RefCell<Option<Range<usize>>>>,
+    /// The layout-persistence callback (`on_state_change`, P4): fired whenever
+    /// the column layout or sort changes, so the consumer can save UI state.
+    on_state_change: Rc<RefCell<Option<StateChangeCb>>>,
+    /// While set, `notify_state_change` is a no-op — used to silence the save
+    /// callback during [`restore_state`](VirtualTableView::restore_state).
+    suppress_state_change: Rc<Cell<bool>>,
     /// Visible data-row count — drives scroll-follow and the page step.
     viewport_rows: Rc<Cell<u16>>,
     /// Logical row that materialized pool row 0 currently represents.
@@ -146,6 +157,8 @@ impl VirtualTableView {
             windowed: Rc::new(Cell::new(false)),
             on_window_change: Rc::new(RefCell::new(None)),
             last_request: Rc::new(RefCell::new(None)),
+            on_state_change: Rc::new(RefCell::new(None)),
+            suppress_state_change: Rc::new(Cell::new(false)),
             viewport_rows: Rc::new(Cell::new(0)),
             window_start: Rc::new(Cell::new(0)),
             nav_active: Rc::new(Cell::new(false)),
@@ -534,6 +547,96 @@ impl VirtualTableView {
         if let Some(mut cb) = taken {
             cb(req);
             *self.on_window_change.borrow_mut() = Some(cb);
+        }
+    }
+
+    // ── Persistable UI state (`SPEC_DATA_SOURCE.md` P4) ──────────────
+
+    /// Snapshot the column layout (order, widths, hidden) + the active sort as a
+    /// [`TableState`] the consumer can persist. Columns are in display order;
+    /// everything is keyed by column header (stable across reorders).
+    pub fn table_state(&self) -> TableState {
+        let model = self.inner.borrow();
+        let columns = model
+            .columns()
+            .iter()
+            .enumerate()
+            .map(|(i, c)| ColumnState {
+                header: c.header.clone(),
+                width: c.width,
+                hidden: model.is_column_hidden(i),
+            })
+            .collect();
+        let sort = model.sort_state().and_then(|(col, dir)| {
+            model.columns().get(col).map(|c| SortSpec {
+                column: c.header.clone(),
+                dir,
+            })
+        });
+        TableState { columns, sort }
+    }
+
+    /// Register a callback fired whenever the layout changes — a sort, a column
+    /// reorder, a width change, or a hide/show. Hand the consumer the current
+    /// [`TableState`] so it can persist UI state. Not fired during
+    /// [`restore_state`](Self::restore_state) (a restore isn't a user edit).
+    pub fn on_state_change(&self, cb: impl FnMut(&TableState) + 'static) {
+        *self.on_state_change.borrow_mut() = Some(Box::new(cb));
+    }
+
+    /// Re-apply a previously-saved [`TableState`]: reorder columns to match, set
+    /// each column's width + hidden flag, and apply the sort — all by header, so
+    /// columns present in one but not the other are matched where possible and
+    /// skipped otherwise. The `on_state_change` callback is suppressed for the
+    /// duration.
+    pub fn restore_state(&self, dom: &mut TuiDom, state: &TableState) {
+        self.suppress_state_change.set(true);
+        // 1. Reorder to the saved order (selection-sort by header).
+        for (target, col) in state.columns.iter().enumerate() {
+            let cur = self.with(|t| t.columns().iter().position(|c| c.header == col.header));
+            if let Some(cur) = cur {
+                if cur != target {
+                    self.move_column(dom, cur, target);
+                }
+            }
+        }
+        // 2. Widths + hidden, by header (order-independent).
+        for col in &state.columns {
+            if let Some(idx) =
+                self.with(|t| t.columns().iter().position(|c| c.header == col.header))
+            {
+                self.set_column_width(dom, idx, col.width);
+                self.set_column_hidden(dom, idx, col.hidden);
+            }
+        }
+        // 3. Sort.
+        match &state.sort {
+            Some(spec) => {
+                if let Some(idx) =
+                    self.with(|t| t.columns().iter().position(|c| c.header == spec.column))
+                {
+                    self.sort(dom, idx, spec.dir);
+                }
+            }
+            None => self.clear_sort(dom),
+        }
+        self.suppress_state_change.set(false);
+    }
+
+    /// Fire `on_state_change` with the current snapshot — unless suppressed (a
+    /// restore in progress) or no callback is registered. Called at the end of
+    /// every layout mutation.
+    pub(crate) fn notify_state_change(&self) {
+        if self.suppress_state_change.get() || self.on_state_change.borrow().is_none() {
+            return;
+        }
+        let state = self.table_state();
+        // Take across the call so a re-entrant mutation from the callback
+        // doesn't double-borrow the RefCell.
+        let taken = self.on_state_change.borrow_mut().take();
+        if let Some(mut cb) = taken {
+            cb(&state);
+            *self.on_state_change.borrow_mut() = Some(cb);
         }
     }
 

@@ -212,7 +212,7 @@ Observatory is async (tokio: `query().await`, `subscribe → Stream`); rdom-tui 
 - **P1** — `RowKey`, `CellValue`, `Row`, `Delta`; the window buffer + epoch + placeholder rendering; in-memory filler parity (all current tests green on the new model, `&str`→`Text` shims). Selection → `{explicit, all, except}`; cursor index-based with `RowKey` exposure.
 - **P2** — push API (`apply`/`set_total`) + `on_window_change` (debounced, epoch-stamped) + `invalidate` + prefetch margin + **per-tick delta coalescing** (moved up from P4 per N6).
 - **P3** — reference Observatory adapter (lens TUI or `rdom-virtualtable-observatory`): Arrow→`CellValue`, `RowKey` from PK, query/subscribe → `apply`, `AppHandle` bridge. End-to-end against Observatory fixtures.
-- **P4** — persistence callbacks (sort/order/width/hidden) for the consumer to save UI state.
+- **P4** — persistence callbacks (sort/order/width/hidden) for the consumer to save UI state. **Done:** `TableState` / `ColumnState` (header-keyed), `table_state()` snapshot, `on_state_change(cb)` fired on every layout mutation (sort/clear_sort/reorder/width/hide), and `restore_state(dom, &state)` re-applying a saved layout with the callback suppressed.
 
 ## 12. Open questions / risks (remaining after v2)
 

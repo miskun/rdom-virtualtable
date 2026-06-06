@@ -71,6 +71,7 @@ impl VirtualTableView {
         // so `size_columns` measures the glyph and the column is wide enough.
         self.apply_sort_indicator(dom);
         self.refresh(dom);
+        self.notify_state_change();
     }
 
     /// Toggle the sort on `col`: ascending the first time, then flipping
@@ -105,6 +106,7 @@ impl VirtualTableView {
         self.reset_window_for_refetch();
         self.apply_sort_indicator(dom);
         self.refresh(dom);
+        self.notify_state_change();
     }
 
     /// Move the column at `from` to index `to`: permutes the model (header +
@@ -128,6 +130,7 @@ impl VirtualTableView {
         self.apply_sort_indicator(dom);
         self.sync_header_widths(dom);
         self.refresh(dom);
+        self.notify_state_change();
     }
 
     /// Hide or show the column at `col`. A hidden column gets `data-vt-hidden`
@@ -410,6 +413,7 @@ impl VirtualTableView {
             super::set_flag(dom, th, "data-vt-hidden", hidden);
         }
         self.refresh(dom);
+        self.notify_state_change();
         hidden
     }
 
@@ -542,6 +546,7 @@ impl VirtualTableView {
         self.inner.borrow_mut().set_column_width(col, width);
         self.sync_header_widths(dom);
         self.refresh(dom);
+        self.notify_state_change();
     }
 
     /// Apply each column's model width (`Column::width`) to its header `<th>`'s

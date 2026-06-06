@@ -231,3 +231,30 @@ v1 ran a grumpy-architect + grumpy-API pass. Blockers resolved in v2:
 - **B3 (cursor model)** — §8: cursor = absolute index (nav/scroll), exposes `RowKey` when loaded; selection = identity. Removes the "RowKey + derived index" contradiction.
 
 Non-blockers folded in: N1 (filter dropped from `WindowRequest`; consumer-owned + `invalidate`), N2 (apply-before-Resync / unknown-key = no-op), N3 (capability matrix), N4 (`From<&str>/String`; in-memory `RowKey` assignment), N5 (unified `apply(Delta)` mirroring Observatory), N6 (apply marks dirty + coalesces; real-time coalescing moved to P2).
+
+## 14. Implementation review gate — P1–P4 (CLEARED)
+
+Grumpy-architect + grumpy-API passes over the shipped P1–P4 code.
+
+**Blocker found + fixed:** cursor / nav / scroll / mouse-cursor / selection-clamp
+sized the dataset off `VirtualTable::row_count()` (= 0 when windowed) instead of
+the buffer total — keyboard nav was pinned at row 0 over windowed data. Fixed
+with a `total_rows()` seam (sibling of `key_at`) routing all six call sites;
+regression-tested (`keyboard_nav_works_over_the_windowed_total_not_the_empty_model`).
+
+**Accepted risks / non-blocking (tracked, not yet actioned):**
+
+- **`VirtualTableView` size** — ~2100 lines across `mod.rs` + `columns.rs` on one
+  type. Cohesive but multi-concern; extract the column-menu + windowed-source
+  controllers into sub-structs if it grows further.
+- **`with(&mut VirtualTable)` escape hatch** — bypasses buffer/windowed/notify
+  bookkeeping; corrupts invariants if used in windowed mode. In-memory-only;
+  needs a louder doc warning.
+- **Callback panic drops the callback** — `take/restore` of `on_window_change` /
+  `on_state_change` loses the callback if the consumer's closure panics. Moot in
+  practice (`App::run` catch_unwind exits with the terminal restored). Accepted.
+- **`selected_row_keys()` convenience** — bulk actions (§8) currently dedupe
+  `selection().explicit()` by key; add the helper when the adapter wires them.
+- **No `DIVERGENCES.md`** — deliberate web-platform departures (synthetic
+  in-memory `RowKey`; cursor stays on its index across a re-sort) are documented
+  only here, not in a dedicated divergences doc.

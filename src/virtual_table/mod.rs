@@ -445,10 +445,23 @@ impl VirtualTableView {
         self.selection.borrow().mode()
     }
 
-    /// A snapshot of the current selection — query it with
-    /// [`GridSelection::is_selected`] / [`is_active`](GridSelection::is_active).
+    /// A snapshot of the current selection — query its mode / activity /
+    /// predicate ([`is_active`](GridSelection::is_active),
+    /// [`is_all`](GridSelection::is_all), [`explicit`](GridSelection::explicit),
+    /// [`except`](GridSelection::except)). To ask whether a *positional* cell is
+    /// selected, use [`is_cell_selected`](Self::is_cell_selected) — it resolves
+    /// the row's identity from the model, which the bare snapshot can't.
     pub fn selection(&self) -> GridSelection {
         self.selection.borrow().clone()
+    }
+
+    /// Is the cell at view index `(row, col)` selected? Resolves the row's
+    /// [`RowKey`](crate::RowKey) from the model so the answer follows identity
+    /// across re-sorts / live updates (`SPEC_DATA_SOURCE.md` §8). A row index
+    /// past the loaded data is never selected (no identity to match).
+    pub fn is_cell_selected(&self, row: usize, col: usize) -> bool {
+        let key = self.inner.borrow().rows().get(row).map(|r| r.key.clone());
+        key.is_some_and(|k| self.selection.borrow().is_selected(row, col, &k))
     }
 
     /// Extend the selection by moving the cursor (Shift+arrow): the range
@@ -474,9 +487,12 @@ impl VirtualTableView {
     pub fn toggle_selection(&self, dom: &mut TuiDom) {
         let c = self.cursor.get();
         {
+            let model = self.inner.borrow();
             let mut sel = self.selection.borrow_mut();
-            if !sel.toggle_range() {
-                sel.toggle(c.row(), c.col());
+            if !sel.toggle_range(|r| model.rows().get(r).map(|row| row.key.clone())) {
+                if let Some(row) = model.rows().get(c.row()) {
+                    sel.toggle(row.key.clone(), c.col());
+                }
             }
         }
         self.apply_highlight(dom);
@@ -555,7 +571,9 @@ impl VirtualTableView {
             .get()
             .at(row.min(rows - 1), col.min(cols - 1), rows, cols);
         self.cursor.set(after);
-        self.selection.borrow_mut().toggle(row, col);
+        if let Some(key) = self.inner.borrow().rows().get(row).map(|r| r.key.clone()) {
+            self.selection.borrow_mut().toggle(key, col);
+        }
         self.refresh_after_cursor(dom, after);
         true
     }
@@ -862,6 +880,7 @@ impl VirtualTableView {
         let cursor = self.cursor.get();
         let start = self.window_start.get();
         let sel = self.selection.borrow();
+        let model = self.inner.borrow();
 
         for (c, &th) in self.header_cells.borrow().iter().enumerate() {
             set_flag(dom, th, "data-active-col", c == cursor.col());
@@ -873,13 +892,14 @@ impl VirtualTableView {
             let vrow = start + i;
             let row_active = vrow == cursor.row();
             set_flag(dom, tr, "data-active-row", row_active);
+            let key = model.rows().get(vrow).map(|r| r.key.clone());
             let mut row_selected = false;
             if let Some(row_cells) = cells.get(i) {
                 for (c, &td) in row_cells.iter().enumerate() {
                     let col_active = c == cursor.col();
                     set_flag(dom, td, "data-active-col", col_active);
                     set_flag(dom, td, "data-active-cell", row_active && col_active);
-                    let selected = sel.is_selected(vrow, c);
+                    let selected = key.as_ref().is_some_and(|k| sel.is_selected(vrow, c, k));
                     set_flag(dom, td, "data-selected", selected);
                     row_selected |= selected;
                 }

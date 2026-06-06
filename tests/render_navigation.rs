@@ -545,10 +545,10 @@ fn plain_move_collapses_select_all_but_keeps_toggles() {
 
     // Ctrl-A selects everything; a plain arrow collapses it.
     view.select_all(&mut dom);
-    assert!(view.selection().is_selected(5, 2), "Ctrl-A selects all");
+    assert!(view.is_cell_selected(5, 2), "Ctrl-A selects all");
     view.navigate(&mut dom, Nav::Down);
     assert!(
-        !view.selection().is_selected(5, 2),
+        !view.is_cell_selected(5, 2),
         "a plain move collapses Ctrl-A select-all"
     );
 
@@ -556,12 +556,12 @@ fn plain_move_collapses_select_all_but_keeps_toggles() {
     view.toggle_selection(&mut dom); // toggles the current cursor cell
     let c = view.cursor();
     assert!(
-        view.selection().is_selected(c.row(), c.col()),
+        view.is_cell_selected(c.row(), c.col()),
         "Space toggles the cursor cell"
     );
     view.navigate(&mut dom, Nav::Down);
     assert!(
-        view.selection().is_selected(c.row(), c.col()),
+        view.is_cell_selected(c.row(), c.col()),
         "the toggled cell survives a plain move"
     );
 }
@@ -584,11 +584,8 @@ fn space_commits_a_shift_range_and_builds_multiple_ranges() {
     view.extend_selection(&mut dom, Nav::Down);
     view.toggle_selection(&mut dom);
     view.navigate(&mut dom, Nav::Down); // plain move away → A must persist
-    assert!(
-        view.selection().is_selected(0, 0),
-        "committed range A persists"
-    );
-    assert!(view.selection().is_selected(1, 0));
+    assert!(view.is_cell_selected(0, 0), "committed range A persists");
+    assert!(view.is_cell_selected(1, 0));
 
     // Range B: move to (4,1), Shift+Down (rect (4,1)..(5,1)), Space commits.
     view.navigate(&mut dom, Nav::Down); // (3,0)
@@ -596,11 +593,11 @@ fn space_commits_a_shift_range_and_builds_multiple_ranges() {
     view.navigate(&mut dom, Nav::Right); // (4,1)
     view.extend_selection(&mut dom, Nav::Down);
     view.toggle_selection(&mut dom);
-    assert!(view.selection().is_selected(0, 0), "range A still held");
-    assert!(view.selection().is_selected(4, 1), "range B held");
-    assert!(view.selection().is_selected(5, 1));
+    assert!(view.is_cell_selected(0, 0), "range A still held");
+    assert!(view.is_cell_selected(4, 1), "range B held");
+    assert!(view.is_cell_selected(5, 1));
     assert!(
-        !view.selection().is_selected(3, 0),
+        !view.is_cell_selected(3, 0),
         "the gap between ranges is unselected"
     );
 }

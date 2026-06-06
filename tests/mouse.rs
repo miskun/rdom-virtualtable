@@ -144,11 +144,10 @@ fn shift_click_extends_a_range() {
     down(&mut dom, a, KeyModifiers::empty());
     down(&mut dom, b, KeyModifiers::SHIFT);
 
-    let sel = view.selection();
-    assert!(sel.is_selected(1, 0), "anchor corner");
-    assert!(sel.is_selected(3, 2), "head corner");
-    assert!(sel.is_selected(2, 1), "interior of the rectangle");
-    assert!(!sel.is_selected(0, 0), "outside the rectangle");
+    assert!(view.is_cell_selected(1, 0), "anchor corner");
+    assert!(view.is_cell_selected(3, 2), "head corner");
+    assert!(view.is_cell_selected(2, 1), "interior of the rectangle");
+    assert!(!view.is_cell_selected(0, 0), "outside the rectangle");
     assert_eq!((view.cursor().row(), view.cursor().col()), (3, 2));
 }
 
@@ -163,13 +162,15 @@ fn ctrl_click_toggles_individual_cells() {
     let b = cell(&dom, table, 4, 2);
     down(&mut dom, a, KeyModifiers::CONTROL);
     down(&mut dom, b, KeyModifiers::CONTROL);
-    let sel = view.selection();
-    assert!(sel.is_selected(0, 0));
-    assert!(sel.is_selected(4, 2));
-    assert!(!sel.is_selected(2, 1), "discontiguous — nothing between");
+    assert!(view.is_cell_selected(0, 0));
+    assert!(view.is_cell_selected(4, 2));
+    assert!(
+        !view.is_cell_selected(2, 1),
+        "discontiguous — nothing between"
+    );
     // Ctrl+click an already-selected cell removes it.
     down(&mut dom, a, KeyModifiers::CONTROL);
-    assert!(!view.selection().is_selected(0, 0));
+    assert!(!view.is_cell_selected(0, 0));
 }
 
 // ── Drag → rubber-band range ────────────────────────────────────────
@@ -200,11 +201,10 @@ fn drag_rubber_bands_a_range() {
         )),
     );
 
-    let sel = view.selection();
-    assert!(sel.is_selected(0, 0), "drag anchor");
-    assert!(sel.is_selected(2, 1), "drag head");
-    assert!(sel.is_selected(1, 0), "interior");
-    assert!(!sel.is_selected(3, 0), "below the drag");
+    assert!(view.is_cell_selected(0, 0), "drag anchor");
+    assert!(view.is_cell_selected(2, 1), "drag head");
+    assert!(view.is_cell_selected(1, 0), "interior");
+    assert!(!view.is_cell_selected(3, 0), "below the drag");
     assert_eq!((view.cursor().row(), view.cursor().col()), (2, 1));
 }
 
@@ -265,27 +265,22 @@ fn drag_past_the_edge_autoscrolls_and_extends_the_selection() {
         app.advance(50).unwrap();
     }
 
-    let sel = view.selection();
-    assert!(sel.is_selected(0, col), "anchor row still selected");
+    assert!(view.is_cell_selected(0, col), "anchor row still selected");
     assert!(
-        (0..40).filter(|&r| sel.is_selected(r, col)).count() > visible as usize,
+        (0..40).filter(|&r| view.is_cell_selected(r, col)).count() > visible as usize,
         "autoscroll extended the selection beyond the initial {visible}-row window"
     );
     assert!(
-        sel.is_selected(visible as usize + 2, col),
+        view.is_cell_selected(visible as usize + 2, col),
         "a row that was off-screen at drag start is now selected"
     );
 
     // Release stops autoscroll; the selection is stable afterward.
     app.handle_event(me(MouseEventKind::Up(CtButton::Left), 2, 7));
-    let count_after_release = (0..40)
-        .filter(|&r| view.selection().is_selected(r, col))
-        .count();
+    let count_after_release = (0..40).filter(|&r| view.is_cell_selected(r, col)).count();
     app.advance(500).unwrap();
     assert_eq!(
-        (0..40)
-            .filter(|&r| view.selection().is_selected(r, col))
-            .count(),
+        (0..40).filter(|&r| view.is_cell_selected(r, col)).count(),
         count_after_release,
         "no further autoscroll after release"
     );
@@ -350,10 +345,9 @@ fn drag_autoscroll_keeps_a_stable_column_and_an_unclipped_window() {
         );
     }
 
-    let sel = view.selection();
     // The cursor stayed in the NAME column — no flicker into col 0 / col 2.
     assert_eq!(view.cursor().col(), col, "cursor column is stable");
-    let selected_in_col1 = (0..40).filter(|&r| sel.is_selected(r, col)).count();
+    let selected_in_col1 = (0..40).filter(|&r| view.is_cell_selected(r, col)).count();
     assert!(
         selected_in_col1 > visible as usize,
         "the NAME-column selection extended past the initial window"
@@ -361,13 +355,13 @@ fn drag_autoscroll_keeps_a_stable_column_and_an_unclipped_window() {
     // The rectangle is exactly col 1 — neither id (col 0) nor status (col 2)
     // bled in from a flickering head column.
     for r in 0..40 {
-        if sel.is_selected(r, col) {
+        if view.is_cell_selected(r, col) {
             assert!(
-                !sel.is_selected(r, 0),
+                !view.is_cell_selected(r, 0),
                 "row {r}: col 0 must not be selected"
             );
             assert!(
-                !sel.is_selected(r, 2),
+                !view.is_cell_selected(r, 2),
                 "row {r}: col 2 must not be selected"
             );
         }
@@ -399,7 +393,7 @@ fn drag_extends_only_while_the_button_is_held() {
         TuiEvent::mousemove(me(MouseEventKind::Moved, KeyModifiers::empty())),
     );
     assert!(
-        !view.selection().is_selected(4, 2),
+        !view.is_cell_selected(4, 2),
         "a move after release doesn't extend"
     );
 }

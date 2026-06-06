@@ -715,7 +715,8 @@ impl VirtualTableView {
     /// [`refresh_after_cursor`](Self::refresh_after_cursor). Returns `None`
     /// for an empty grid.
     fn move_cursor(&self, nav: Nav) -> Option<(GridCursor, GridCursor)> {
-        let (rows, cols) = self.with(|t| (t.row_count(), t.columns().len()));
+        let cols = self.with(|t| t.columns().len());
+        let rows = self.total_rows();
         if rows == 0 || cols == 0 {
             return None;
         }
@@ -758,7 +759,7 @@ impl VirtualTableView {
     ///   untouched (this replaces the old `!mouse_drag` guard).
     fn refresh_after_cursor(&self, dom: &mut TuiDom, after: GridCursor) {
         let viewport = self.viewport_rows.get() as usize;
-        let rows = self.with(|t| t.row_count());
+        let rows = self.total_rows();
 
         if self.scroll_mode.get() {
             // Truth = the <tbody>'s scroll_top. Reveal the cursor relative to it
@@ -847,6 +848,20 @@ impl VirtualTableView {
         }
     }
 
+    /// The dataset's row count for cursor / nav / scroll math. The sibling of
+    /// [`key_at`](Self::key_at): in windowed mode the model is empty, so the
+    /// total lives in the buffer (the full filtered result, e.g. 100k); in
+    /// in-memory mode it's the resident row count. Every place that bounds the
+    /// cursor or computes a scroll offset must read this, never `row_count()`
+    /// directly — otherwise windowed nav pins the cursor at row 0.
+    fn total_rows(&self) -> usize {
+        if self.windowed.get() {
+            self.buffer.borrow().total()
+        } else {
+            self.inner.borrow().row_count()
+        }
+    }
+
     /// The stable identity ([`RowKey`](crate::RowKey)) of the row at view index
     /// `row`, or `None` if that row isn't currently loaded (windowed mode, past
     /// the buffered window). Lets a consumer act on "the cursor's row" — e.g.
@@ -919,7 +934,8 @@ impl VirtualTableView {
     /// (the mouse analog of an arrow-key move). Returns `true` if the cursor
     /// moved. No-op for an empty grid.
     pub fn set_cursor_at(&self, dom: &mut TuiDom, row: usize, col: usize) -> bool {
-        let (rows, cols) = self.with(|t| (t.row_count(), t.columns().len()));
+        let cols = self.with(|t| t.columns().len());
+        let rows = self.total_rows();
         if rows == 0 || cols == 0 {
             return false;
         }
@@ -941,7 +957,8 @@ impl VirtualTableView {
         if self.selection_mode() == SelectionMode::None {
             return self.set_cursor_at(dom, row, col);
         }
-        let (rows, cols) = self.with(|t| (t.row_count(), t.columns().len()));
+        let cols = self.with(|t| t.columns().len());
+        let rows = self.total_rows();
         if rows == 0 || cols == 0 {
             return false;
         }
@@ -963,7 +980,8 @@ impl VirtualTableView {
         if self.selection_mode() == SelectionMode::None {
             return self.set_cursor_at(dom, row, col);
         }
-        let (rows, cols) = self.with(|t| (t.row_count(), t.columns().len()));
+        let cols = self.with(|t| t.columns().len());
+        let rows = self.total_rows();
         if rows == 0 || cols == 0 {
             return false;
         }

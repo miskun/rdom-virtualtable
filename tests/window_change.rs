@@ -8,7 +8,8 @@ use std::rc::Rc;
 
 use rdom_tui::{NodeId, TuiDom};
 use rdom_virtualtable::{
-    CellValue, Column, Delta, Row, SortDir, SortSpec, VirtualTable, VirtualTableView, WindowRequest,
+    CellValue, Column, Delta, Nav, Row, SortDir, SortSpec, VirtualTable, VirtualTableView,
+    WindowRequest,
 };
 
 fn windowed_view(cols: usize) -> VirtualTableView {
@@ -165,4 +166,35 @@ fn row_cells(dom: &TuiDom, tr: NodeId) -> Vec<NodeId> {
         .filter(|c| c.node_name() == "td")
         .map(|c| c.id())
         .collect()
+}
+
+#[test]
+fn keyboard_nav_works_over_the_windowed_total_not_the_empty_model() {
+    // Regression: cursor/nav must size off the buffer total in windowed mode.
+    // The model is empty (rows pushed via apply), so reading row_count() from
+    // the model would pin the cursor at row 0.
+    let view = windowed_view(2);
+    let pending = record(&view);
+    let (mut dom, _table) = mounted(&view, 5);
+    view.set_total(&mut dom, 1000);
+    // Fulfil the initial request so the first rows are loaded.
+    let req = pending.borrow_mut().drain(..).next().unwrap();
+    let rows: Vec<Row> = req
+        .range
+        .clone()
+        .map(|i| row(&format!("k{i}"), &[&i.to_string(), "n"]))
+        .collect();
+    view.apply(
+        &mut dom,
+        req.epoch,
+        Delta::Resync {
+            start: req.range.start,
+            rows,
+        },
+    );
+
+    assert_eq!(view.cursor().row(), 0);
+    let moved = view.navigate(&mut dom, Nav::Down);
+    assert!(moved, "cursor must move down over the windowed dataset");
+    assert_eq!(view.cursor().row(), 1, "cursor advanced to row 1");
 }

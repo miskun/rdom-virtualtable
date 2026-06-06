@@ -115,7 +115,8 @@ impl VirtualTableView {
     /// follows** its column; the **selection is cleared** (a structural change,
     /// like sort). No-op for out-of-range or equal indices.
     pub fn move_column(&self, dom: &mut TuiDom, from: usize, to: usize) {
-        let (rows, cols) = self.with(|t| (t.row_count(), t.columns().len()));
+        let cols = self.with(|t| t.columns().len());
+        let rows = self.total_rows();
         if from >= cols || to >= cols || from == to {
             return;
         }

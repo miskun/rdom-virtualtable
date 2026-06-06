@@ -63,6 +63,9 @@ impl VirtualTableView {
     pub fn sort(&self, dom: &mut TuiDom, col: usize, dir: SortDir) {
         self.inner.borrow_mut().sort_by(col, dir);
         self.selection.borrow_mut().clear();
+        // Windowed mode: the sort is *requested* — drop the stale rows so the
+        // refresh re-fetches with the new sort (in-memory mode re-sorts locally).
+        self.reset_window_for_refetch();
         // Mark the header (and append the glyph to its text) *before* refresh,
         // so `size_columns` measures the glyph and the column is wide enough.
         self.apply_sort_indicator(dom);
@@ -99,6 +102,7 @@ impl VirtualTableView {
     pub fn clear_sort(&self, dom: &mut TuiDom) {
         self.inner.borrow_mut().clear_sort();
         self.selection.borrow_mut().clear();
+        self.reset_window_for_refetch();
         self.apply_sort_indicator(dom);
         self.refresh(dom);
     }

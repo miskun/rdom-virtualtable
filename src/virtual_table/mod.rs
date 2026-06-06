@@ -20,6 +20,7 @@
 //! drives [`show_window`](VirtualTableView::show_window) explicitly.
 
 use std::cell::{Cell, RefCell};
+use std::ops::Range;
 use std::rc::Rc;
 
 use rdom_tui::layout::{Border, BorderStyle, UserSelect};
@@ -33,11 +34,15 @@ use crate::data::{Delta, Row, RowKey};
 use crate::grid_cursor::{GridCursor, Nav, nav_for_key, reveal_scroll};
 use crate::model::VirtualTable;
 use crate::selection::{GridSelection, SelectionMode};
-use crate::window::WindowBuffer;
+use crate::window::{SortSpec, WindowBuffer, WindowRequest};
 
 /// Column operations (sort / reorder / hide / sort indicator) — `impl
 /// VirtualTableView` blocks kept off this file.
 mod columns;
+
+/// The windowed-source callback (`on_window_change`): a boxed `FnMut` the table
+/// calls with a fresh-epoch [`WindowRequest`] whenever the window must refill.
+type WindowChangeCb = Box<dyn FnMut(WindowRequest)>;
 
 /// A shareable handle that owns a [`VirtualTable`] and materializes a
 /// window of it as a `<table>` subtree in a `TuiDom`.
@@ -66,6 +71,15 @@ pub struct VirtualTableView {
     /// loaded rows have a key); in the default in-memory mode it reads the model
     /// (all rows resident, so a key resolves at any index).
     windowed: Rc<Cell<bool>>,
+    /// The windowed-source callback (`on_window_change`): the table calls it
+    /// whenever the visible range, sort, or an `invalidate` changes what must be
+    /// shown, handing a fresh-epoch [`WindowRequest`]. `None` until registered
+    /// (in-memory mode never fires it).
+    on_window_change: Rc<RefCell<Option<WindowChangeCb>>>,
+    /// The prefetch range most recently requested via `on_window_change`. Guards
+    /// against re-firing the identical request while its result is in flight
+    /// (the table's coalescing — `SPEC_DATA_SOURCE.md` §5).
+    last_request: Rc<RefCell<Option<Range<usize>>>>,
     /// Visible data-row count — drives scroll-follow and the page step.
     viewport_rows: Rc<Cell<u16>>,
     /// Logical row that materialized pool row 0 currently represents.
@@ -130,6 +144,8 @@ impl VirtualTableView {
             selection: Rc::new(RefCell::new(GridSelection::new(SelectionMode::None))),
             buffer: Rc::new(RefCell::new(WindowBuffer::new())),
             windowed: Rc::new(Cell::new(false)),
+            on_window_change: Rc::new(RefCell::new(None)),
+            last_request: Rc::new(RefCell::new(None)),
             viewport_rows: Rc::new(Cell::new(0)),
             window_start: Rc::new(Cell::new(0)),
             nav_active: Rc::new(Cell::new(false)),
@@ -195,8 +211,11 @@ impl VirtualTableView {
             return;
         };
         // In-memory mode: copy the model's slice into the buffer + publish the
-        // total. Windowed mode leaves the buffer to the push API.
-        if !self.windowed.get() {
+        // total. Windowed mode asks the source for any not-yet-loaded slice (a
+        // no-op if the buffer already covers the window).
+        if self.windowed.get() {
+            self.request_window(start, count, false);
+        } else {
             self.fill_buffer_from_model(start, count);
         }
         self.render_window(dom, tbody, start, count);
@@ -407,13 +426,115 @@ impl VirtualTableView {
         if self.tbody.get().is_none() {
             return;
         }
+        self.show_window(dom, self.window_start.get(), self.current_count());
+    }
+
+    /// The current visible row count: the viewport if set, else the buffered
+    /// span (a consumer driving `show_window` directly without a viewport).
+    fn current_count(&self) -> usize {
         let vp = self.viewport_rows.get() as usize;
-        let count = if vp == 0 {
+        if vp == 0 {
             self.buffer.borrow().len()
         } else {
             vp
+        }
+    }
+
+    /// Register the windowed-source callback. The table calls it whenever the
+    /// visible range, sort, or an [`invalidate`](Self::invalidate) changes what
+    /// must be shown, handing a fresh-epoch [`WindowRequest`]; the consumer
+    /// re-queries its source and pushes [`apply`](Self::apply) back, echoing the
+    /// epoch. Registering it puts the view in **windowed mode**. The callback
+    /// must not synchronously re-enter the view's windowing methods (it should
+    /// enqueue an async fetch and return).
+    pub fn on_window_change(&self, cb: impl FnMut(WindowRequest) + 'static) {
+        self.windowed.set(true);
+        *self.on_window_change.borrow_mut() = Some(Box::new(cb));
+    }
+
+    /// Force a re-fetch of the current window: drop the buffered rows (so stale
+    /// data doesn't paint while the refresh is in flight — placeholders show
+    /// instead) and re-fire `on_window_change` with a fresh epoch. The consumer
+    /// calls this when *its* filter changes (the table has no filter UI) or as a
+    /// "refresh now" hook.
+    pub fn invalidate(&self, dom: &mut TuiDom) {
+        *self.last_request.borrow_mut() = None;
+        self.buffer.borrow_mut().clear_rows();
+        self.request_window(self.window_start.get(), self.current_count(), true);
+        self.rerender_current(dom);
+    }
+
+    /// Windowed-mode reset before a structural re-fetch (a sort change): drop
+    /// the stale rows + the in-flight request marker so the following
+    /// `show_window` issues a fresh request with the new parameters. No-op in
+    /// in-memory mode (the model re-fills the buffer directly).
+    fn reset_window_for_refetch(&self) {
+        if self.windowed.get() {
+            *self.last_request.borrow_mut() = None;
+            self.buffer.borrow_mut().clear_rows();
+        }
+    }
+
+    /// The table's current sort as [`SortSpec`]s (keyed by column header, stable
+    /// across reorder). Empty when unsorted.
+    fn current_sort_specs(&self) -> Vec<SortSpec> {
+        let model = self.inner.borrow();
+        match model.sort_state() {
+            Some((col, dir)) => model
+                .columns()
+                .get(col)
+                .map(|c| {
+                    vec![SortSpec {
+                        column: c.header.clone(),
+                        dir,
+                    }]
+                })
+                .unwrap_or_default(),
+            None => Vec::new(),
+        }
+    }
+
+    /// Fire `on_window_change` for the window `[start, start + count)` if needed.
+    /// Skips when the buffer already covers the visible range (`force` overrides,
+    /// e.g. `invalidate`) or when the same prefetch range is already in flight.
+    /// Expands the visible range by a ±50% prefetch margin so adjacent scroll is
+    /// shimmer-free, bumps the epoch, and stamps `last_request`. No-op when no
+    /// callback is registered (in-memory mode).
+    fn request_window(&self, start: usize, count: usize, force: bool) {
+        if self.on_window_change.borrow().is_none() {
+            return;
+        }
+        let total = self.buffer.borrow().total();
+        let end = (start + count).min(total);
+        if !force {
+            let covered = {
+                let b = self.buffer.borrow();
+                (start..end).all(|i| b.is_loaded(i))
+            };
+            if covered {
+                return;
+            }
+        }
+        let margin = count / 2; // ±50% prefetch margin
+        let range = start.saturating_sub(margin)..(end + margin).min(total);
+        if !force && self.last_request.borrow().as_ref() == Some(&range) {
+            return;
+        }
+        let epoch = self.buffer.borrow_mut().bump_epoch();
+        *self.last_request.borrow_mut() = Some(range.clone());
+        let req = WindowRequest {
+            epoch,
+            range,
+            sort: self.current_sort_specs(),
         };
-        self.show_window(dom, self.window_start.get(), count);
+        // Take the callback out across the call so a re-entrant render
+        // (callback → apply → rerender → show_window → request_window) sees no
+        // callback: it neither re-fires nor double-borrows the RefCell.
+        let taken = self.on_window_change.borrow_mut().take();
+        if let Some(mut cb) = taken {
+            cb(req);
+            *self.on_window_change.borrow_mut() = Some(cb);
+        }
     }
 
     /// Build a spacer `<tr>` of `rows` cells tall, marked so consumer CSS and

@@ -21,8 +21,32 @@
 //! that uses it lives at the push API (P2); this module only stores + bumps it.
 
 use std::collections::HashMap;
+use std::ops::Range;
 
 use crate::data::{Row, RowKey};
+use crate::model::SortDir;
+
+/// A request from the table for the consumer to (re)fetch a window
+/// (`SPEC_DATA_SOURCE.md` §5). Carries the `epoch` to echo back through
+/// [`apply`](crate::VirtualTableView::apply) (so stale results drop), the
+/// absolute `range` to fetch (the visible window plus a prefetch margin), and
+/// the current `sort` the table owns. No filter — that's consumer-owned (N1);
+/// the table only signals "things changed, re-request" via
+/// [`invalidate`](crate::VirtualTableView::invalidate).
+#[derive(Clone, Debug)]
+pub struct WindowRequest {
+    pub epoch: u64,
+    pub range: Range<usize>,
+    pub sort: Vec<SortSpec>,
+}
+
+/// One sort key in a [`WindowRequest`]: a column identified by its **header**
+/// (stable across column reorder, unlike the positional index) and a direction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SortSpec {
+    pub column: String,
+    pub dir: SortDir,
+}
 
 /// The rows currently materializable, by index and by key, plus the total and
 /// the window epoch. See the module docs.

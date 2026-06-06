@@ -29,7 +29,7 @@ use rdom_tui::{
     TuiAccessors, TuiAccessorsMut, TuiDom, TuiNodeExt, TuiNodeMutExt, TuiStyle, Value,
 };
 
-use crate::data::{Row, RowKey};
+use crate::data::{Delta, Row, RowKey};
 use crate::grid_cursor::{GridCursor, Nav, nav_for_key, reveal_scroll};
 use crate::model::VirtualTable;
 use crate::selection::{GridSelection, SelectionMode};
@@ -344,6 +344,76 @@ impl VirtualTableView {
     pub fn set_viewport_rows(&self, rows: u16) {
         self.viewport_rows.set(rows);
         self.nav_active.set(true);
+    }
+
+    // ── Windowed data source (push API; `SPEC_DATA_SOURCE.md` §5) ─────
+
+    /// The current window epoch. A windowed consumer echoes this back through
+    /// [`apply`](Self::apply) so stale pushes (out-of-order async results, late
+    /// deltas from a torn-down subscription) are dropped. Bumped whenever what
+    /// must be shown changes.
+    pub fn window_epoch(&self) -> u64 {
+        self.buffer.borrow().epoch()
+    }
+
+    /// Set the total row count of the (filtered) result — drives the scrollbar
+    /// extent. Puts the view in **windowed mode** (identity resolves from the
+    /// buffer, not the model) and re-renders so the spacers reflect the new
+    /// total. The consumer derives `total` from a count query/subscription.
+    pub fn set_total(&self, dom: &mut TuiDom, total: usize) {
+        self.windowed.set(true);
+        self.buffer.borrow_mut().set_total(total);
+        self.rerender_current(dom);
+    }
+
+    /// Apply a [`Delta`] for window `epoch`. **Pushes whose epoch ≠ the current
+    /// window epoch are dropped silently** — this is what makes out-of-order
+    /// async results and late deltas from a torn-down subscription safe. A
+    /// `Resync` replaces the buffer for its range; `Upsert`/`Remove` patch by
+    /// [`RowKey`](crate::RowKey) (an `Upsert` for a key not in the window is
+    /// ignored, and any patch before the first `Resync` of an epoch is a no-op).
+    /// Re-renders the current window (placeholders for not-yet-loaded slots) and
+    /// reasserts the highlight. Puts the view in windowed mode.
+    pub fn apply(&self, dom: &mut TuiDom, epoch: u64, delta: Delta) {
+        {
+            let mut buf = self.buffer.borrow_mut();
+            if epoch != buf.epoch() {
+                return; // stale push — drop
+            }
+            match delta {
+                Delta::Resync { start, rows } => buf.set_window(start, rows),
+                Delta::Upsert { rows } => {
+                    for row in rows {
+                        buf.upsert(row);
+                    }
+                }
+                Delta::Remove { keys } => {
+                    for key in &keys {
+                        buf.remove(key);
+                    }
+                }
+            }
+        }
+        self.windowed.set(true);
+        self.rerender_current(dom);
+    }
+
+    /// Re-render the current visible window from the buffer (no re-fill) +
+    /// reassert the highlight. The window stays `window_start ..
+    /// window_start + viewport`; `viewport` falls back to the buffered span when
+    /// no viewport is set. Routes through [`show_window`](Self::show_window),
+    /// which skips the in-memory fill in windowed mode.
+    fn rerender_current(&self, dom: &mut TuiDom) {
+        if self.tbody.get().is_none() {
+            return;
+        }
+        let vp = self.viewport_rows.get() as usize;
+        let count = if vp == 0 {
+            self.buffer.borrow().len()
+        } else {
+            vp
+        };
+        self.show_window(dom, self.window_start.get(), count);
     }
 
     /// Build a spacer `<tr>` of `rows` cells tall, marked so consumer CSS and

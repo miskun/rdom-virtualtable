@@ -99,6 +99,38 @@ impl WindowBuffer {
         self.slots = rows.into_iter().map(Some).collect();
     }
 
+    /// Patch a row in place by identity — the `Upsert` primitive. Replaces the
+    /// slot of `row.key` if it's currently in the window; returns `false`
+    /// (ignored) for a key not in the window (`SPEC_DATA_SOURCE.md` §5 N2 — a
+    /// row enters via `Resync`, not `Upsert`). An `Upsert` before any `Resync`
+    /// is therefore a no-op (the key index is empty).
+    pub fn upsert(&mut self, row: Row) -> bool {
+        let Some(&idx) = self.by_key.get(&row.key) else {
+            return false;
+        };
+        let Some(i) = idx.checked_sub(self.start) else {
+            return false;
+        };
+        self.by_key.insert(row.key.clone(), idx);
+        self.slots[i] = Some(row);
+        true
+    }
+
+    /// Drop a row by identity — the `Remove` primitive. Its slot becomes a
+    /// placeholder (the row left the window; a following `Resync` refills the
+    /// shifted window). Returns `false` if the key wasn't in the window.
+    pub fn remove(&mut self, key: &RowKey) -> bool {
+        let Some(idx) = self.by_key.remove(key) else {
+            return false;
+        };
+        if let Some(i) = idx.checked_sub(self.start) {
+            if let Some(slot) = self.slots.get_mut(i) {
+                *slot = None;
+            }
+        }
+        true
+    }
+
     /// The row at absolute `index`, or `None` if the index is outside the
     /// buffered span or its slot is a placeholder.
     pub fn row_at(&self, index: usize) -> Option<&Row> {
@@ -192,6 +224,35 @@ mod tests {
         assert_eq!(b.bump_epoch(), 1);
         assert_eq!(b.bump_epoch(), 2);
         assert_eq!(b.epoch(), 2);
+    }
+
+    #[test]
+    fn upsert_patches_in_place_and_ignores_unknown_keys() {
+        let mut b = WindowBuffer::new();
+        b.set_window(0, vec![row("a", "A"), row("b", "B")]);
+        assert!(b.upsert(row("b", "B2")), "key in window → patched");
+        assert_eq!(b.row_at(1).map(|r| r.cell(0).display()), Some("B2".into()));
+        assert!(!b.upsert(row("z", "Z")), "key not in window → ignored (N2)");
+        assert_eq!(b.index_of(&"z".into()), None);
+    }
+
+    #[test]
+    fn upsert_before_resync_is_a_noop() {
+        let mut b = WindowBuffer::new();
+        assert!(!b.upsert(row("a", "A")), "no Resync yet → nothing to patch");
+        assert!(b.is_empty());
+    }
+
+    #[test]
+    fn remove_makes_the_slot_a_placeholder() {
+        let mut b = WindowBuffer::new();
+        b.set_window(10, vec![row("a", "A"), row("b", "B"), row("c", "C")]);
+        assert!(b.remove(&"b".into()));
+        assert!(!b.is_loaded(11), "removed slot is now a placeholder");
+        assert_eq!(b.index_of(&"b".into()), None);
+        assert!(b.is_loaded(10), "neighbours untouched");
+        assert!(b.is_loaded(12));
+        assert!(!b.remove(&"b".into()), "second remove is a no-op");
     }
 
     #[test]

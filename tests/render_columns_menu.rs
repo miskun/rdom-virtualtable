@@ -18,7 +18,7 @@ fn grid(cols: usize) -> VirtualTableView {
     let mut model = VirtualTable::new(columns);
     model.set_rows(
         (0..VISIBLE)
-            .map(|r| (0..cols).map(|c| format!("r{r}c{c}")).collect())
+            .map(|r| (0..cols).map(|c| format!("r{r}c{c}").into()).collect())
             .collect(),
     );
     VirtualTableView::new(model)

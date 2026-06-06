@@ -17,7 +17,7 @@ fn scroll_grid(rows: usize, cols: usize) -> (TuiDom, VirtualTableView, NodeId, N
     let mut model = VirtualTable::new(columns);
     model.set_rows(
         (0..rows)
-            .map(|r| (0..cols).map(|c| format!("r{r}c{c}")).collect())
+            .map(|r| (0..cols).map(|c| format!("r{r}c{c}").into()).collect())
             .collect(),
     );
     let view = VirtualTableView::new(model);

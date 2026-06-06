@@ -15,7 +15,7 @@ fn view_with(rows: &[&[&str]], cols: usize) -> VirtualTableView {
     let mut model = VirtualTable::new(columns);
     model.set_rows(
         rows.iter()
-            .map(|r| r.iter().map(|s| s.to_string()).collect())
+            .map(|r| r.iter().map(|s| s.to_string().into()).collect())
             .collect(),
     );
     VirtualTableView::new(model)

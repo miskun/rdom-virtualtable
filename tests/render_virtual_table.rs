@@ -35,7 +35,7 @@ fn big_table() -> VirtualTableView {
     let mut model = VirtualTable::new(vec![Column::new("id"), Column::new("name")]);
     model.set_rows(
         (0..1000)
-            .map(|i| vec![format!("{i}"), format!("row-{i}")])
+            .map(|i| vec![format!("{i}").into(), format!("row-{i}").into()])
             .collect(),
     );
     VirtualTableView::new(model)

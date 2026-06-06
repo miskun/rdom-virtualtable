@@ -207,9 +207,12 @@ impl VirtualTableView {
             let mut row_cells = Vec::with_capacity(ncols);
             for c in 0..ncols {
                 let td = dom.create_element("td");
-                let cell = row.get(c).map(String::as_str).unwrap_or("");
-                let text = dom.create_text_node(cell);
+                let value = row.cell(c);
+                let text = dom.create_text_node(&value.display());
                 dom.append_child(td, text).unwrap();
+                if let Some(level) = value.status() {
+                    let _ = dom.set_attribute(td, "data-vt-status", level.as_attr());
+                }
                 if model.is_column_hidden(c) {
                     set_flag(dom, td, "data-vt-hidden", true);
                 }

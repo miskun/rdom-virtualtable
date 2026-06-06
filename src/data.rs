@@ -92,7 +92,10 @@ pub enum CellValue {
     /// length.
     Duration(Duration),
     /// Text plus a severity the renderer can colour.
-    Status { text: String, level: StatusLevel },
+    Status {
+        text: String,
+        level: StatusLevel,
+    },
 }
 
 impl CellValue {
@@ -259,7 +262,10 @@ mod tests {
         assert_eq!(CellValue::Number(42.0).display(), "42");
         assert_eq!(CellValue::Bytes(2048).display(), "2.0 KiB");
         assert_eq!(CellValue::Bytes(512).display(), "512 B");
-        assert_eq!(CellValue::Duration(Duration::from_secs(90)).display(), "1m30s");
+        assert_eq!(
+            CellValue::Duration(Duration::from_secs(90)).display(),
+            "1m30s"
+        );
         assert_eq!(
             CellValue::Status {
                 text: "Running".into(),
@@ -273,7 +279,10 @@ mod tests {
     #[test]
     fn sort_cmp_numeric_and_text() {
         // Two Numbers compare by value.
-        assert_eq!(CellValue::Number(2.0).sort_cmp(&CellValue::Number(10.0)), Ordering::Less);
+        assert_eq!(
+            CellValue::Number(2.0).sort_cmp(&CellValue::Number(10.0)),
+            Ordering::Less
+        );
         // Two Texts that both parse compare numerically ("2" < "10").
         assert_eq!(
             CellValue::from("2").sort_cmp(&CellValue::from("10")),
@@ -285,9 +294,15 @@ mod tests {
             Ordering::Less
         );
         // Bytes compare by value, not display string ("2.0 KiB" vs "512 B").
-        assert_eq!(CellValue::Bytes(512).sort_cmp(&CellValue::Bytes(2048)), Ordering::Less);
+        assert_eq!(
+            CellValue::Bytes(512).sort_cmp(&CellValue::Bytes(2048)),
+            Ordering::Less
+        );
         // Empty sorts first.
-        assert_eq!(CellValue::Empty.sort_cmp(&CellValue::from("a")), Ordering::Less);
+        assert_eq!(
+            CellValue::Empty.sort_cmp(&CellValue::from("a")),
+            Ordering::Less
+        );
     }
 
     #[test]

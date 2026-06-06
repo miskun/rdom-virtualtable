@@ -15,7 +15,7 @@ fn grid(cols: usize) -> VirtualTableView {
     let mut model = VirtualTable::new(columns);
     model.set_rows(
         (0..ROWS)
-            .map(|r| (0..cols).map(|c| format!("r{r}c{c}")).collect())
+            .map(|r| (0..cols).map(|c| format!("r{r}c{c}").into()).collect())
             .collect(),
     );
     VirtualTableView::new(model)
@@ -218,7 +218,7 @@ fn drag_past_the_edge_autoscrolls_and_extends_the_selection() {
     let mut model = VirtualTable::new((0..3).map(|c| Column::new(format!("c{c}"))).collect());
     model.set_rows(
         (0..40)
-            .map(|r| (0..3).map(|c| format!("r{r}c{c}")).collect())
+            .map(|r| (0..3).map(|c| format!("r{r}c{c}").into()).collect())
             .collect(),
     );
     let view = VirtualTableView::new(model);
@@ -304,7 +304,7 @@ fn drag_autoscroll_keeps_a_stable_column_and_an_unclipped_window() {
     let mut model = VirtualTable::new((0..3).map(|c| Column::new(format!("c{c}"))).collect());
     model.set_rows(
         (0..40)
-            .map(|r| (0..3).map(|c| format!("r{r}c{c}")).collect())
+            .map(|r| (0..3).map(|c| format!("r{r}c{c}").into()).collect())
             .collect(),
     );
     let view = VirtualTableView::new(model);

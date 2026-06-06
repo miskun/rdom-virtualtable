@@ -62,9 +62,9 @@ fn main() -> io::Result<()> {
         (0..ROWS)
             .map(|i| {
                 vec![
-                    format!("{i:04}"),
-                    format!("item-{i}"),
-                    if i % 5 == 0 { "warn" } else { "ok" }.to_string(),
+                    format!("{i:04}").into(),
+                    format!("item-{i}").into(),
+                    if i % 5 == 0 { "warn" } else { "ok" }.into(),
                 ]
             })
             .collect(),

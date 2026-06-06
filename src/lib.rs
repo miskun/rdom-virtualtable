@@ -14,7 +14,11 @@
 //! use rdom_tui::TuiDom;
 //!
 //! let mut model = VirtualTable::new(vec![Column::new("id"), Column::new("name")]);
-//! model.set_rows((0..10_000).map(|i| vec![i.to_string(), format!("row-{i}")]).collect());
+//! model.set_rows(
+//!     (0..10_000)
+//!         .map(|i| vec![i.to_string().into(), format!("row-{i}").into()])
+//!         .collect(),
+//! );
 //!
 //! let view = VirtualTableView::new(model);
 //! let mut dom = TuiDom::new();

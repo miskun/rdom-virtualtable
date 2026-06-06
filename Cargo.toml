@@ -13,7 +13,7 @@ readme = "README.md"
 [dependencies]
 # Public rdom-tui surface only (native <table>, element/text builders,
 # column sync). No path dep, no private hooks.
-rdom-tui = "0.3.13"  # 0.3.13+: drag autoscroll + robustness — sticky scroll container + banded edge zone + mid-tick cascade so the re-windowed rows are sized before the synthetic move (no column flicker / cropped window) (DRAG-AUTOSCROLL)
+rdom-tui = "0.3.14"  # 0.3.14+: position_at no longer snaps out of a user-select:none region — an empty table-body click past the last column no longer starts a phantom text selection that hijacks the grid. 0.3.13: drag autoscroll + mid-tick cascade so re-windowed rows are sized before the synthetic move (DRAG-AUTOSCROLL)
 
 [dev-dependencies]
 # Synthesize crossterm MouseEvents for the mouse-interaction tests (must match

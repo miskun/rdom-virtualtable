@@ -28,7 +28,8 @@ bounded number of `<tr>` nodes.
 - **Selection** — configurable `SelectionMode::{None, Cell, Row}`; Shift-range /
   Space-toggle / Ctrl-A / Esc; `data-selected` CSS contract. Keyed by **row
   identity** (`RowKey`), so it survives sort / scroll / live updates; `Ctrl-A`
-  over windowed data is a predicate (`all` + `except`).
+  over windowed data is a predicate (`all` + `except`). `selected_row_keys()`
+  enumerates the explicitly-selected rows for bulk actions.
 - **Mouse** — `install_mouse`: header-click sort cycle, click-to-cursor,
   Shift/Ctrl+click, press-drag rubber-band, and edge drag-autoscroll.
 - **Sort** — `sort` / `toggle_sort` / `cycle_sort` with a numeric-aware stable
